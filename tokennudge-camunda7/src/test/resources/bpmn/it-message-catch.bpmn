@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
+             xmlns:camunda="http://camunda.org/schema/1.0/bpmn"
+             targetNamespace="http://tokennudge.github.io/it">
+  <process id="it-message-catch" name="IT Message Catch" isExecutable="true" camunda:historyTimeToLive="P1D">
+    <startEvent id="start" />
+    <sequenceFlow id="flow1" sourceRef="start" targetRef="confirm" />
+    <intermediateCatchEvent id="confirm" name="Wait for confirmation">
+      <messageEventDefinition messageRef="itConfirmed" />
+    </intermediateCatchEvent>
+    <sequenceFlow id="flow2" sourceRef="confirm" targetRef="end" />
+    <endEvent id="end" />
+  </process>
+  <message id="itConfirmed" name="ItConfirmed" />
+</definitions>

@@ -35,6 +35,28 @@ import java.util.Map;
  *       with a clear reason). Prefer it over a generic {@link RuntimeException} whenever the
  *       engine's own response makes the outcome unambiguous.</li>
  * </ul>
+ * <h3>The JDK {@code HttpClient} trap</h3>
+ * <p>Adapters built on {@code java.net.http.HttpClient} (as {@code tokennudge-camunda7} is)
+ * must map its exceptions carefully, because not every {@link java.io.IOException} it throws
+ * means "not delivered":
+ * <ul>
+ *   <li>Only a <em>connect-phase</em> failure counts as "not delivered": a
+ *       {@link java.net.ConnectException} (the connection could not be established at all),
+ *       a {@link java.net.http.HttpConnectTimeoutException} (connecting itself timed out),
+ *       or any other failure thrown before the request has been handed to the socket. Only
+ *       these may become {@link EngineAccessException}.</li>
+ *   <li>A {@link java.net.http.HttpTimeoutException} thrown by
+ *       {@code HttpClient.send(...)} after the connection was already established (for
+ *       example, the response never arrived within the request timeout), or any other
+ *       {@link java.io.IOException} from {@code send(...)} once the connection is up, is
+ *       <strong>ambiguous</strong>: the request may already have reached the engine and been
+ *       applied. It must be treated per the "any other {@code RuntimeException}" rule above,
+ *       never wrapped as {@link EngineAccessException}.</li>
+ *   <li>Note that {@link java.net.http.HttpConnectTimeoutException} is itself a subclass of
+ *       {@link java.net.http.HttpTimeoutException}: an adapter's {@code catch} logic must
+ *       check for the more specific connect-timeout subclass first, or it will
+ *       misclassify every connect timeout as ambiguous instead of "not delivered".</li>
+ * </ul>
  * <p>For {@code claim} specifically: an ambiguous failure is journaled as
  * {@code ACTION_FAILED}, not {@link io.github.tokennudge.model.Outcome#CLAIM_LOST}, because
  * {@code CLAIM_LOST} means the engine authoritatively reported that another worker claimed

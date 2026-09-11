@@ -19,6 +19,16 @@ import java.io.Serial;
  * {@link RuntimeException} from those two methods is treated as an ambiguous, unknown
  * outcome and is never retried &mdash; see {@link EngineAdapter}'s class Javadoc "Failure
  * contract" section for the full rules.
+ *
+ * <p>For adapters built on {@code java.net.http.HttpClient}: only a connect-phase failure
+ * &mdash; {@link java.net.ConnectException}, {@link java.net.http.HttpConnectTimeoutException},
+ * or anything thrown before the request is handed to the socket &mdash; may become this
+ * exception. A {@link java.net.http.HttpTimeoutException} or any other
+ * {@link java.io.IOException} thrown by {@code HttpClient.send(...)} once the connection is
+ * already established is ambiguous and must <strong>not</strong> be wrapped as this
+ * exception; see {@link EngineAdapter}'s class Javadoc "The JDK {@code HttpClient} trap"
+ * section. Note that {@link java.net.http.HttpConnectTimeoutException} is a subclass of
+ * {@link java.net.http.HttpTimeoutException}, so it must be checked for first.
  */
 public class EngineAccessException extends RuntimeException {
 

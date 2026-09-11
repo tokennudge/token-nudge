@@ -1,6 +1,7 @@
 package io.github.tokennudge;
 
 import java.time.Duration;
+import java.util.OptionalLong;
 
 /**
  * Abstracts the notion of "loop iterations" and time for {@link VerificationEvaluator}, so
@@ -56,12 +57,18 @@ interface IterationClock {
      * as if it were "one full iteration that started after" it (used by
      * {@link VerificationEvaluator}'s non-monotonic, {@code never}/{@code atMost} awaiting).
      *
-     * @param timeout how long to wait for a fresh baseline to become available before
-     *                falling back to {@link #iterationCount()}, never {@code null} or
-     *                negative
-     * @return the baseline iteration count
+     * <p>Unlike an ordinary "current value" reading, this operation can genuinely fail to
+     * produce a usable baseline within {@code timeout} (for example, an iteration is
+     * holding the underlying lock for longer than the caller's whole budget). Callers must
+     * treat {@link OptionalLong#empty()} as a timeout in its own right &mdash; evaluating
+     * against a stale baseline instead would defeat the purpose of this method.
+     *
+     * @param timeout how long to wait for a fresh baseline to become available, never
+     *                {@code null} or negative
+     * @return the baseline iteration count, or {@link OptionalLong#empty()} if no fresh
+     *         baseline could be obtained within {@code timeout}
      */
-    long freshIterationBaseline(Duration timeout);
+    OptionalLong freshIterationBaseline(Duration timeout);
 
     /**
      * Returns the current time in nanoseconds, per this clock. Mirrors

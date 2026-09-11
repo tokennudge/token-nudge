@@ -17,6 +17,9 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.OptionalLong;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.BooleanSupplier;
 
@@ -402,5 +405,46 @@ class NudgeLoopTest {
         // Well under the 30s poll interval: proves the wake-up, not the natural poll, drove this.
         awaitUntil(loop, () -> !journal.entries().isEmpty(), Duration.ofSeconds(5));
         assertThat(journal.entries().get(0).outcome()).isEqualTo(Outcome.HANDLED);
+    }
+
+    @Test
+    void freshIterationBaselineReturnsEmptyWhenIterationLockCannotBeAcquiredWithinTheTimeout() throws Exception {
+        // ReentrantLock is reentrant, so the lock must be held by a different thread than
+        // the one calling freshIterationBaseline() for tryLock() to genuinely time out.
+        ReentrantLock externallyHeldLock = new ReentrantLock();
+        NudgeLoop loopWithHeldLock =
+                new NudgeLoop(adapter, registry, journal, externallyHeldLock, SHORT_POLL, false, 50);
+        CountDownLatch lockAcquired = new CountDownLatch(1);
+        CountDownLatch releaseLock = new CountDownLatch(1);
+        Thread holder = new Thread(() -> {
+            externallyHeldLock.lock();
+            try {
+                lockAcquired.countDown();
+                releaseLock.await();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            } finally {
+                externallyHeldLock.unlock();
+            }
+        }, "lock-holder");
+        holder.setDaemon(true);
+        holder.start();
+        try {
+            assertThat(lockAcquired.await(5, TimeUnit.SECONDS)).isTrue();
+            OptionalLong baseline = loopWithHeldLock.freshIterationBaseline(Duration.ofMillis(50));
+            assertThat(baseline)
+                    .as("no fresh baseline can be honestly reported while iterationLock is held elsewhere")
+                    .isEmpty();
+        } finally {
+            releaseLock.countDown();
+            holder.join(TimeUnit.SECONDS.toMillis(5));
+        }
+    }
+
+    @Test
+    void freshIterationBaselineReturnsTheCurrentCountOnceIterationLockIsAvailable() {
+        NudgeLoop loop = newLoop(SHORT_POLL, false);
+        OptionalLong baseline = loop.freshIterationBaseline(Duration.ofSeconds(1));
+        assertThat(baseline).hasValue(loop.iterationCount());
     }
 }

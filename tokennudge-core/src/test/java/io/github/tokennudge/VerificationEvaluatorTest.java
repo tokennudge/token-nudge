@@ -218,6 +218,22 @@ class VerificationEvaluatorTest {
     }
 
     @Test
+    void nonMonotonicVerificationFailsExplicitlyWhenNoFreshIterationBaselineIsAvailable() {
+        InMemoryJournal journal = new InMemoryJournal();
+        FakeIterationClock clock = new FakeIterationClock();
+        clock.makeFreshIterationBaselineUnavailable();
+        // Queue an iteration that would otherwise satisfy the verification if it were
+        // (wrongly) evaluated against a stale baseline; it must never be consulted.
+        clock.queueIteration(() -> recordHandled(journal, waitState("task-1")));
+
+        Verification verification = TokenNudge.externalTask("charge-card").completed().never();
+
+        assertThatThrownBy(() -> new VerificationEvaluator(journal, clock).evaluate(verification, DEFAULT_TIMEOUT))
+                .isInstanceOf(VerificationException.class)
+                .hasMessageContaining("timed out waiting for a fresh loop iteration");
+    }
+
+    @Test
     void nonMonotonicDeadlineComputationDoesNotOverflowWhenClockIsNearMaxValue() {
         InMemoryJournal journal = new InMemoryJournal();
         FakeIterationClock clock = new FakeIterationClock(Long.MAX_VALUE - 5);

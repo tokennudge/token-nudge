@@ -20,6 +20,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
@@ -225,28 +226,33 @@ public final class NudgeLoop {
      * {@code iterationLock}) strictly after this method released it.
      *
      * <p>If {@code iterationLock} cannot be acquired within {@code timeout}, or the wait is
-     * interrupted, this method falls back to the current, possibly-stale
-     * {@link #iterationCount()} rather than blocking indefinitely; callers apply their own
-     * overall deadline on top of this call.
+     * interrupted, no baseline can be honestly reported: falling back to the current,
+     * possibly-stale {@link #iterationCount()} would let a caller treat an iteration that
+     * was already in flight (and is still holding {@code iterationLock} for longer than the
+     * caller's entire timeout budget) as having started after this call, which is exactly
+     * the bug this method exists to prevent. Callers must therefore treat an empty result as
+     * a timeout in its own right, not silently fall back to a stale count.
      *
      * @param timeout how long to wait to acquire {@code iterationLock}, never {@code null}
      *                or negative
-     * @return the baseline iteration count
+     * @return the baseline iteration count, or {@link OptionalLong#empty()} if
+     *         {@code iterationLock} could not be acquired within {@code timeout} (including
+     *         if the wait was interrupted)
      */
-    public long freshIterationBaseline(Duration timeout) {
+    public OptionalLong freshIterationBaseline(Duration timeout) {
         Objects.requireNonNull(timeout, "timeout must not be null");
         boolean acquired;
         try {
             acquired = iterationLock.tryLock(Math.max(timeout.toNanos(), 0), TimeUnit.NANOSECONDS);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            return iterationCount();
+            return OptionalLong.empty();
         }
         if (!acquired) {
-            return iterationCount();
+            return OptionalLong.empty();
         }
         try {
-            return iterationCount();
+            return OptionalLong.of(iterationCount());
         } finally {
             iterationLock.unlock();
         }

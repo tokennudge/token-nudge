@@ -93,6 +93,14 @@
         <scope>test</scope>
       </dependency>
       <dependency>
+        <!-- Pinned so it wins over the older transitive version testcontainers depends on,
+             avoiding an SLF4J 1.x/2.x provider mismatch warning at test time. -->
+        <groupId>org.slf4j</groupId>
+        <artifactId>slf4j-api</artifactId>
+        <version>${slf4j-simple.version}</version>
+        <scope>test</scope>
+      </dependency>
+      <dependency>
         <groupId>io.github.tokennudge</groupId>
         <artifactId>tokennudge-core</artifactId>
         <version>${project.version}</version>

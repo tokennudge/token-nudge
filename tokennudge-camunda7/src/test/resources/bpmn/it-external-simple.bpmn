@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
+             xmlns:camunda="http://camunda.org/schema/1.0/bpmn"
+             targetNamespace="http://tokennudge.github.io/it">
+  <process id="it-external-simple" name="IT External Simple" isExecutable="true" camunda:historyTimeToLive="P1D">
+    <startEvent id="start" />
+    <sequenceFlow id="flow1" sourceRef="start" targetRef="chargeTask" />
+    <serviceTask id="chargeTask" name="Charge" camunda:type="external" camunda:topic="it-charge" />
+    <sequenceFlow id="flow2" sourceRef="chargeTask" targetRef="end" />
+    <endEvent id="end" />
+  </process>
+</definitions>

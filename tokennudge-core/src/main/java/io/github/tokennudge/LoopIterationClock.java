@@ -4,6 +4,7 @@ import io.github.tokennudge.internal.NudgeLoop;
 
 import java.time.Duration;
 import java.util.Objects;
+import java.util.OptionalLong;
 
 /**
  * Adapts an {@code io.github.tokennudge.internal.NudgeLoop}'s public
@@ -37,7 +38,7 @@ final class LoopIterationClock implements IterationClock {
     }
 
     @Override
-    public long freshIterationBaseline(Duration timeout) {
+    public OptionalLong freshIterationBaseline(Duration timeout) {
         return loop.freshIterationBaseline(timeout);
     }
 

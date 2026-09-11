@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
+             xmlns:camunda="http://camunda.org/schema/1.0/bpmn"
+             targetNamespace="http://tokennudge.github.io/it">
+  <process id="it-external-bpmn-error" name="IT External Bpmn Error" isExecutable="true" camunda:historyTimeToLive="P1D">
+    <startEvent id="start" />
+    <sequenceFlow id="flow1" sourceRef="start" targetRef="chargeTask" />
+    <serviceTask id="chargeTask" name="Charge" camunda:type="external" camunda:topic="it-charge-error" />
+    <sequenceFlow id="flow2" sourceRef="chargeTask" targetRef="end" />
+    <endEvent id="end" />
+    <boundaryEvent id="rejectedBoundary" attachedToRef="chargeTask">
+      <errorEventDefinition errorRef="rejectedError" />
+    </boundaryEvent>
+    <sequenceFlow id="flow3" sourceRef="rejectedBoundary" targetRef="rejectedEnd" />
+    <endEvent id="rejectedEnd" />
+  </process>
+  <error id="rejectedError" errorCode="IT_REJECTED" name="ItRejected" />
+</definitions>

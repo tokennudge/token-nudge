@@ -7,6 +7,7 @@ import java.time.Duration;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
+import java.util.OptionalLong;
 
 /**
  * Evaluates a {@link Verification} against an {@link InMemoryJournal}, awaiting loop
@@ -25,7 +26,9 @@ import java.util.Objects;
  *   <li>Non-monotonic expectations ({@code atMost}/{@code never}) wait for one full
  *       iteration that starts after the call to {@link #evaluate(Verification, Duration)}
  *       (see {@link IterationClock#freshIterationBaseline(Duration)}), then are evaluated
- *       exactly once.</li>
+ *       exactly once. If no fresh iteration can be confirmed to have started within the
+ *       timeout, the verification fails explicitly instead of falling back to a stale
+ *       journal snapshot.</li>
  * </ul>
  *
  * <p>Package-private: not public API. Lives alongside {@link Verification} and
@@ -104,8 +107,20 @@ final class VerificationEvaluator {
         long deadline = saturatingAdd(clock.nanoTime(), timeout.toNanos());
         // Read while the deadline still applies: freshIterationBaseline() may itself block
         // (briefly) to obtain a baseline that is guaranteed fresh; see its Javadoc.
-        long startIteration = clock.freshIterationBaseline(remainingTimeUntil(deadline));
-        clock.awaitIterationAfter(startIteration, deadline);
+        OptionalLong startIteration = clock.freshIterationBaseline(remainingTimeUntil(deadline));
+        if (startIteration.isEmpty()) {
+            // No fresh baseline could be obtained within the verify timeout (for example, an
+            // iteration is holding the underlying lock for longer than this whole call's
+            // budget, as can happen with a slow HTTP call and a short verifyTimeout).
+            // Falling back to a stale iteration count here would let never()/atMost() pass
+            // even though the in-flight iteration could still go on to perform the very
+            // action being verified against; fail explicitly instead.
+            throw new VerificationException(
+                    "timed out waiting for a fresh loop iteration (expected " + verification.describeExpectation()
+                            + " time(s)); the loop appears to be stuck in an iteration that has been running "
+                            + "longer than the verify timeout (" + timeout + ")");
+        }
+        clock.awaitIterationAfter(startIteration.getAsLong(), deadline);
         assertSatisfied(verification);
     }
 

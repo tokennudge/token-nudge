@@ -3,6 +3,7 @@ package io.github.tokennudge;
 import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.Deque;
+import java.util.OptionalLong;
 
 /**
  * Deterministic, non-blocking {@link IterationClock} test fixture: instead of sleeping,
@@ -17,6 +18,7 @@ final class FakeIterationClock implements IterationClock {
     private boolean running = true;
     private long iteration = 0;
     private long nanoTime = 0;
+    private boolean freshBaselineUnavailable = false;
     private final Deque<Runnable> scriptedIterations = new ArrayDeque<>();
 
     FakeIterationClock() {
@@ -45,10 +47,13 @@ final class FakeIterationClock implements IterationClock {
     }
 
     @Override
-    public long freshIterationBaseline(Duration timeout) {
+    public OptionalLong freshIterationBaseline(Duration timeout) {
+        if (freshBaselineUnavailable) {
+            return OptionalLong.empty();
+        }
         // No real concurrency here: the current iteration count already reflects every
         // iteration that has been "run" (scripted) so far, so it aliases iterationCount().
-        return iteration;
+        return OptionalLong.of(iteration);
     }
 
     @Override
@@ -70,6 +75,15 @@ final class FakeIterationClock implements IterationClock {
 
     void setRunning(boolean running) {
         this.running = running;
+    }
+
+    /**
+     * Makes {@link #freshIterationBaseline(Duration)} return {@link OptionalLong#empty()},
+     * simulating a loop iteration that holds the underlying lock for longer than the whole
+     * verify timeout.
+     */
+    void makeFreshIterationBaselineUnavailable() {
+        this.freshBaselineUnavailable = true;
     }
 
     /**
