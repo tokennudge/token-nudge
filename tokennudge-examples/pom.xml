@@ -1,0 +1,147 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>io.github.tokennudge</groupId>
+    <artifactId>tokennudge</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>tokennudge-examples</artifactId>
+  <packaging>jar</packaging>
+
+  <name>TokenNudge Examples</name>
+  <description>
+    A small, runnable Spring Boot + Camunda 7 service, plus the black-box tests that drive it
+    entirely through its public HTTP API and TokenNudge. This is the README quickstart demo;
+    it is not published, and TokenNudge is a test dependency only, never used from main code.
+  </description>
+
+  <properties>
+    <!-- Demo app, not a publishable library artifact. -->
+    <maven.deploy.skip>true</maven.deploy.skip>
+    <!-- The parent enables failOnWarning for the library modules; Spring Boot's own generated
+         code and the starter's transitive dependencies are not held to that bar here. -->
+    <maven.compiler.failOnWarning>false</maven.compiler.failOnWarning>
+
+    <spring-boot.version>3.5.16</spring-boot.version>
+    <camunda.version>7.24.0</camunda.version>
+    <awaitility.version>4.3.0</awaitility.version>
+  </properties>
+
+  <dependencyManagement>
+    <dependencies>
+      <!-- Imported here only, per PLAN.md §1: the library modules stay free of Spring Boot
+           and Camunda entirely. Spring Boot's BOM is imported first, so it - not camunda-bom -
+           wins for dependencies both BOMs manage (Jackson, servlet API, etc.), matching
+           Camunda's own guidance for pairing camunda-bom with a chosen Spring Boot version. -->
+      <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-dependencies</artifactId>
+        <version>${spring-boot.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+      <dependency>
+        <groupId>org.camunda.bpm</groupId>
+        <artifactId>camunda-bom</artifactId>
+        <version>${camunda.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
+  <dependencies>
+    <dependency>
+      <groupId>org.camunda.bpm.springboot</groupId>
+      <artifactId>camunda-bpm-spring-boot-starter-rest</artifactId>
+    </dependency>
+    <dependency>
+      <!-- spring-boot-starter-web is only optional on the starter above; the app's own
+           /orders controller needs it declared directly. -->
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-web</artifactId>
+    </dependency>
+    <dependency>
+      <!-- Brings DataSourceAutoConfiguration / DataSourceTransactionManagerAutoConfiguration
+           (and HikariCP); without it there is no PlatformTransactionManager bean for the
+           Camunda engine's own datasource configuration to wire into. -->
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-jdbc</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.h2database</groupId>
+      <artifactId>h2</artifactId>
+      <scope>runtime</scope>
+    </dependency>
+
+    <dependency>
+      <!-- Not used from test code directly (no engine-internal access); its presence on the
+           classpath is what makes TokenNudge.forEngine(...) resolve a real adapter via
+           ServiceLoader. -->
+      <groupId>io.github.tokennudge</groupId>
+      <artifactId>tokennudge-camunda7</artifactId>
+      <version>${project.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>io.github.tokennudge</groupId>
+      <artifactId>tokennudge-junit5</artifactId>
+      <version>${project.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.assertj</groupId>
+      <artifactId>assertj-core</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.awaitility</groupId>
+      <artifactId>awaitility</artifactId>
+      <version>${awaitility.version}</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <configuration>
+          <failOnWarning>false</failOnWarning>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-maven-plugin</artifactId>
+        <version>${spring-boot.version}</version>
+        <executions>
+          <execution>
+            <goals>
+              <goal>repackage</goal>
+            </goals>
+            <configuration>
+              <!-- Keep the plain jar (flat classes, matching target/classes) as the main
+                   artifact, and attach the runnable fat jar under its own classifier instead
+                   of replacing it. Otherwise the fat jar's nested BOOT-INF/classes layout
+                   becomes this module's own test classpath element once failsafe's
+                   integration-test phase runs (after package/repackage), and every class in
+                   src/main/java 404s with a NoClassDefFoundError during test discovery. -->
+              <classifier>exec</classifier>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+</project>

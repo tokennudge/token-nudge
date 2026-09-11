@@ -28,6 +28,7 @@
     <module>tokennudge-core</module>
     <module>tokennudge-camunda7</module>
     <module>tokennudge-junit5</module>
+    <module>tokennudge-examples</module>
   </modules>
 
   <properties>

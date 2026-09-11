@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
+             xmlns:camunda="http://camunda.org/schema/1.0/bpmn"
+             targetNamespace="http://tokennudge.github.io/examples">
+  <process id="payment" name="Payment" isExecutable="true" camunda:historyTimeToLive="P1D">
+    <startEvent id="start" />
+    <sequenceFlow id="flow1" sourceRef="start" targetRef="riskCheckTask" />
+
+    <serviceTask id="riskCheckTask" name="Risk check" camunda:type="external" camunda:topic="risk-check" />
+    <sequenceFlow id="flow2" sourceRef="riskCheckTask" targetRef="chargeCardTask" />
+
+    <serviceTask id="chargeCardTask" name="Charge card" camunda:type="external" camunda:topic="charge-card" />
+    <sequenceFlow id="flow3" sourceRef="chargeCardTask" targetRef="markCompletedTask" />
+
+    <serviceTask id="markCompletedTask" name="Mark order completed"
+                 camunda:delegateExpression="${markCompletedDelegate}" />
+    <sequenceFlow id="flow4" sourceRef="markCompletedTask" targetRef="end" />
+    <endEvent id="end" />
+
+    <boundaryEvent id="riskRejectedBoundary" attachedToRef="riskCheckTask">
+      <errorEventDefinition errorRef="riskRejectedError" />
+    </boundaryEvent>
+    <sequenceFlow id="flow5" sourceRef="riskRejectedBoundary" targetRef="markRejectedTask" />
+
+    <serviceTask id="markRejectedTask" name="Mark order rejected"
+                 camunda:delegateExpression="${markRejectedDelegate}" />
+    <sequenceFlow id="flow6" sourceRef="markRejectedTask" targetRef="rejectedEnd" />
+    <endEvent id="rejectedEnd" />
+  </process>
+
+  <error id="riskRejectedError" errorCode="RISK_REJECTED" name="RiskRejected" />
+</definitions>
