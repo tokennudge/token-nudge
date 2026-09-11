@@ -163,14 +163,27 @@ final class EngineRestTestClient {
     }
 
     /**
-     * Returns the number of open incidents for a process instance.
+     * Returns the open incidents for a process instance.
      *
      * @param processInstanceId the process instance id
-     * @return the incident count
+     * @return the open incidents; empty if none
      */
-    int incidents(String processInstanceId) {
+    List<IncidentInfo> incidents(String processInstanceId) {
         JsonNode array = getJson("/incident?processInstanceId=" + processInstanceId, 200);
-        return array.size();
+        List<IncidentInfo> result = new ArrayList<>();
+        for (JsonNode node : array) {
+            result.add(new IncidentInfo(node.get("incidentType").asText(), node.path("incidentMessage").asText(null)));
+        }
+        return result;
+    }
+
+    /**
+     * An open incident's type and message, as returned by {@code GET /incident}.
+     *
+     * @param incidentType    the incident type, for example {@code "failedExternalTask"}
+     * @param incidentMessage the incident's message, or {@code null}
+     */
+    record IncidentInfo(String incidentType, String incidentMessage) {
     }
 
     /**
@@ -189,18 +202,44 @@ final class EngineRestTestClient {
     }
 
     /**
+     * Returns the activity ids of every historic activity instance for a process instance,
+     * in the order the engine reports them, so a test can confirm which path (for example a
+     * boundary error's distinct end event) was actually taken.
+     *
+     * @param processInstanceId the process instance id
+     * @return the historic activity ids
+     */
+    List<String> historicActivityIds(String processInstanceId) {
+        JsonNode array = getJson("/history/activity-instance?processInstanceId=" + processInstanceId, 200);
+        List<String> result = new ArrayList<>();
+        for (JsonNode node : array) {
+            result.add(node.get("activityId").asText());
+        }
+        return result;
+    }
+
+    /**
+     * Deletes a single process instance, so a test can simulate the engine-side state
+     * disappearing between an adapter's {@code claim} and {@code execute} calls.
+     *
+     * @param processInstanceId the process instance id to delete
+     */
+    void deleteProcessInstance(String processInstanceId) {
+        HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl + "/process-instance/" + processInstanceId
+                        + "?skipCustomListeners=true&skipIoMappings=true"))
+                .DELETE()
+                .build();
+        send(request, 204);
+    }
+
+    /**
      * Deletes every process instance currently running on the engine, so that tests do not
      * interfere with each other. Intended for use in {@code @AfterEach}.
      */
     void deleteAllProcessInstances() {
         JsonNode array = getJson("/process-instance", 200);
         for (JsonNode node : array) {
-            String id = node.get("id").asText();
-            HttpRequest request = HttpRequest.newBuilder(URI.create(
-                            baseUrl + "/process-instance/" + id + "?skipCustomListeners=true&skipIoMappings=true"))
-                    .DELETE()
-                    .build();
-            send(request, 204);
+            deleteProcessInstance(node.get("id").asText());
         }
     }
 

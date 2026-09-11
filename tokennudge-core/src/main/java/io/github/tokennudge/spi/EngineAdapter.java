@@ -64,7 +64,10 @@ import java.util.Map;
  * carries no such information: this worker might now hold the claim, another worker might,
  * or the request might never have arrived; only {@code ACTION_FAILED} with an
  * {@code "outcome unknown: ..."} message reflects that honestly, and (like every other
- * terminal outcome) it is never retried blindly.
+ * terminal outcome) it is never retried blindly. Note the resulting side effect: if the
+ * claim actually succeeded on the engine despite the ambiguous failure, this worker holds
+ * the claim but never acts on it, so the wait state appears stuck until the claim's lock
+ * duration expires and another worker becomes able to claim it again.
  */
 public interface EngineAdapter extends AutoCloseable {
 

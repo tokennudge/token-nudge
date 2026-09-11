@@ -1,9 +1,11 @@
 package io.github.tokennudge.camunda7;
 
 import io.github.tokennudge.Variables;
+import io.github.tokennudge.camunda7.dto.BpmnErrorRequest;
 import io.github.tokennudge.camunda7.dto.CompleteExternalTaskRequest;
 import io.github.tokennudge.camunda7.dto.ExternalTaskDto;
 import io.github.tokennudge.camunda7.dto.ExternalTaskQueryRequest;
+import io.github.tokennudge.camunda7.dto.FailureRequest;
 import io.github.tokennudge.camunda7.dto.LockExternalTaskRequest;
 import io.github.tokennudge.camunda7.dto.TypedValueDto;
 import io.github.tokennudge.camunda7.dto.VariableInstanceDto;
@@ -29,11 +31,11 @@ import java.util.Map;
  * {@link EngineAdapter} implementation talking to a Camunda 7 / CIB Seven engine-rest
  * instance through {@link EngineRestClient}.
  *
- * <p>As of this iteration (6a), only the external-task path is implemented, and only
- * completion; {@link ThrowBpmnError} and {@link FailExternalTask} are rejected with a clear
- * {@link EngineActionException} (iteration 6b), and {@link WaitStateKind#USER_TASK}/
- * {@link WaitStateKind#MESSAGE_SUBSCRIPTION} discovery returns an empty list (iterations 9
- * and 10).
+ * <p>As of this iteration (6b), the external-task path is fully implemented: completion,
+ * {@link ThrowBpmnError}, and {@link FailExternalTask}. {@link WaitStateKind#USER_TASK}/
+ * {@link WaitStateKind#MESSAGE_SUBSCRIPTION} discovery still returns an empty list
+ * (iterations 9 and 10), and any action not applicable to an external task is rejected with
+ * a clear {@link EngineActionException} rather than silently ignored.
  *
  * <p>Implements the adapter failure contract documented on {@link EngineAdapter}'s class
  * Javadoc: {@link EngineRestClient} already maps every {@code java.net.http.HttpClient}
@@ -137,6 +139,13 @@ final class Camunda7EngineAdapter implements EngineAdapter {
      * as {@code ACTION_FAILED} instead. {@link EngineAccessException} (not delivered) and any
      * other {@link RuntimeException} (ambiguous outcome, per the adapter failure contract)
      * are left to propagate unchanged.
+     *
+     * <p><strong>Known side effect of an ambiguous claim timeout:</strong> if
+     * {@code POST /external-task/{id}/lock} times out on the client side but actually
+     * succeeded on the engine, this worker holds the lock even though the loop journals
+     * {@code ACTION_FAILED} and never retries it, so the task appears stuck (untouched by
+     * this run) until {@link EngineConfig#lockDuration()} expires and another worker can
+     * claim it again.
      */
     @Override
     public ClaimResult claim(WaitState waitState) {
@@ -194,25 +203,83 @@ final class Camunda7EngineAdapter implements EngineAdapter {
     }
 
     /**
-     * Executes an action against a claimed external task. Only {@link CompleteExternalTask}
-     * is supported in this iteration; {@link ThrowBpmnError} and {@link FailExternalTask}
-     * (iteration 6b) and any future action type throw a clear, definite
-     * {@link EngineActionException} so the loop journals {@code ACTION_FAILED} rather than
-     * retrying or misreporting the outcome as ambiguous.
+     * Executes an action against a claimed external task: {@link CompleteExternalTask},
+     * {@link ThrowBpmnError}, or {@link FailExternalTask} &mdash; the only {@link Action}
+     * subtypes defined so far ({@code Action} is sealed; user-task and message actions are
+     * added, and this {@code switch} extended, in iterations 9/10). Whichever action-specific
+     * case is added next must keep failing with a clear, definite
+     * {@link EngineActionException} for anything genuinely not applicable to an external
+     * task, rather than silently ignoring it.
+     *
+     * <p>A failure to encode the request body itself &mdash; for example
+     * {@link VariableCodec#encode(Object)} rejecting an unsupported variable value &mdash;
+     * happens before any HTTP call is made and is wrapped here as a definite
+     * {@link EngineActionException}, never left as an ambiguous outcome: nothing was ever
+     * sent to the engine, so the loop must not journal it as "outcome unknown".
      */
     @Override
     public void execute(WaitState waitState, Action action) {
         switch (action) {
             case CompleteExternalTask complete -> completeExternalTask(waitState, complete);
-            case ThrowBpmnError ignored -> throw unsupported("ThrowBpmnError", waitState);
-            case FailExternalTask ignored -> throw unsupported("FailExternalTask", waitState);
+            case ThrowBpmnError bpmnError -> throwBpmnError(waitState, bpmnError);
+            case FailExternalTask failure -> failExternalTask(waitState, failure);
         }
     }
 
     private void completeExternalTask(WaitState waitState, CompleteExternalTask complete) {
-        client.postNoContent(
-                "/external-task/" + waitState.id() + "/complete",
-                new CompleteExternalTaskRequest(config.workerId(), encodeVariables(complete.variables())));
+        CompleteExternalTaskRequest request = buildCompleteRequest(waitState, config.workerId(), complete);
+        client.postNoContent("/external-task/" + waitState.id() + "/complete", request);
+    }
+
+    static CompleteExternalTaskRequest buildCompleteRequest(
+            WaitState waitState, String workerId, CompleteExternalTask complete) {
+        try {
+            return new CompleteExternalTaskRequest(workerId, encodeVariables(complete.variables()));
+        } catch (IllegalArgumentException e) {
+            throw encodingFailure("CompleteExternalTask", waitState, e);
+        }
+    }
+
+    /**
+     * Fails an external task with a BPMN error via {@code POST /external-task/{id}/bpmnError},
+     * to be caught by a matching boundary or intermediate event. If the process definition has
+     * no such matching event, the engine has been observed (Camunda 7.24 and CIB Seven 2.2.0)
+     * to simply end the wait state's scope rather than reject the request, so this call can
+     * still return normally in that case &mdash; it is not a reliable way to trigger a
+     * rejection.
+     */
+    private void throwBpmnError(WaitState waitState, ThrowBpmnError bpmnError) {
+        BpmnErrorRequest request = buildBpmnErrorRequest(waitState, config.workerId(), bpmnError);
+        client.postNoContent("/external-task/" + waitState.id() + "/bpmnError", request);
+    }
+
+    static BpmnErrorRequest buildBpmnErrorRequest(WaitState waitState, String workerId, ThrowBpmnError bpmnError) {
+        try {
+            return new BpmnErrorRequest(
+                    workerId, bpmnError.errorCode(), bpmnError.errorMessage(), encodeVariables(bpmnError.variables()));
+        } catch (IllegalArgumentException e) {
+            throw encodingFailure("ThrowBpmnError", waitState, e);
+        }
+    }
+
+    /**
+     * Fails an external task technically via {@code POST /external-task/{id}/failure}.
+     * {@link FailExternalTask#retryTimeout()} is converted from a {@link java.time.Duration}
+     * to milliseconds, as required by the engine-rest request body; {@code retries == 0}
+     * makes the engine raise an incident immediately.
+     */
+    private void failExternalTask(WaitState waitState, FailExternalTask failure) {
+        FailureRequest request = buildFailureRequest(waitState, config.workerId(), failure);
+        client.postNoContent("/external-task/" + waitState.id() + "/failure", request);
+    }
+
+    static FailureRequest buildFailureRequest(WaitState waitState, String workerId, FailExternalTask failure) {
+        try {
+            return new FailureRequest(
+                    workerId, failure.errorMessage(), failure.retries(), failure.retryTimeout().toMillis());
+        } catch (IllegalArgumentException e) {
+            throw encodingFailure("FailExternalTask", waitState, e);
+        }
     }
 
     private static Map<String, TypedValueDto> encodeVariables(Variables variables) {
@@ -221,9 +288,11 @@ final class Camunda7EngineAdapter implements EngineAdapter {
         return encoded;
     }
 
-    private static EngineActionException unsupported(String actionName, WaitState waitState) {
+    private static EngineActionException encodingFailure(
+            String actionName, WaitState waitState, IllegalArgumentException cause) {
         return new EngineActionException(
-                actionName + " is not supported until iteration 6b: " + waitState.id());
+                "could not encode " + actionName + " request for external task " + waitState.id()
+                        + " before sending it to the engine: " + cause.getMessage(), cause);
     }
 
     @Override

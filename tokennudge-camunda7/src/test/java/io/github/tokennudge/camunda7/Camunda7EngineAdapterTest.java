@@ -1,28 +1,34 @@
 package io.github.tokennudge.camunda7;
 
 import io.github.tokennudge.Variables;
+import io.github.tokennudge.camunda7.dto.BpmnErrorRequest;
+import io.github.tokennudge.camunda7.dto.CompleteExternalTaskRequest;
 import io.github.tokennudge.camunda7.dto.ExternalTaskDto;
+import io.github.tokennudge.camunda7.dto.FailureRequest;
+import io.github.tokennudge.camunda7.dto.TypedValueDto;
 import io.github.tokennudge.camunda7.dto.VariableInstanceDto;
+import io.github.tokennudge.model.CompleteExternalTask;
 import io.github.tokennudge.model.FailExternalTask;
 import io.github.tokennudge.model.ThrowBpmnError;
 import io.github.tokennudge.model.WaitState;
 import io.github.tokennudge.model.WaitStateKind;
 import io.github.tokennudge.spi.EngineActionException;
-import io.github.tokennudge.spi.EngineConfig;
 import org.junit.jupiter.api.Test;
 
-import java.net.URI;
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.Map;
 
+import static io.github.tokennudge.TokenNudge.withVariables;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Unit tests for {@link Camunda7EngineAdapter}'s pure mapping/classification logic: DTO to
- * {@link WaitState} mapping, variable scope filtering, claim-failure classification, and
- * unsupported-action rejection. None of these need a real engine; the discover/claim/
- * variables/execute HTTP paths themselves are covered by the integration tests.
+ * {@link WaitState} mapping, variable scope filtering, claim-failure classification, request
+ * body construction for {@code complete}/{@code bpmnError}/{@code failure}, and encode-failure
+ * wrapping. None of these need a real engine; the discover/claim/variables/execute HTTP paths
+ * themselves are covered by the integration tests.
  */
 class Camunda7EngineAdapterTest {
 
@@ -107,33 +113,87 @@ class Camunda7EngineAdapterTest {
     }
 
     @Test
-    void throwBpmnErrorIsRejectedAsNotSupportedYet() {
-        try (Camunda7EngineAdapter adapter = newAdapter()) {
-            WaitState waitState = waitState("pi-1", "pi-1");
-            assertThatThrownBy(() -> adapter.execute(
-                    waitState, new ThrowBpmnError("IT_REJECTED", null, Variables.empty())))
-                    .isInstanceOf(EngineActionException.class)
-                    .hasMessageContaining("ThrowBpmnError")
-                    .hasMessageContaining("not supported");
-        }
+    void buildsCompleteRequestEncodingVariables() {
+        WaitState waitState = waitState("pi-1", "pi-1");
+        CompleteExternalTask complete = new CompleteExternalTask(withVariables(Map.of("amount", 4200)));
+
+        CompleteExternalTaskRequest request =
+                Camunda7EngineAdapter.buildCompleteRequest(waitState, "worker-1", complete);
+
+        assertThat(request.workerId()).isEqualTo("worker-1");
+        assertThat(request.variables()).containsExactly(Map.entry("amount", new TypedValueDto(4200, "Integer", null)));
     }
 
     @Test
-    void failExternalTaskIsRejectedAsNotSupportedYet() {
-        try (Camunda7EngineAdapter adapter = newAdapter()) {
-            WaitState waitState = waitState("pi-1", "pi-1");
-            assertThatThrownBy(() -> adapter.execute(
-                    waitState, new FailExternalTask("boom", 0, Duration.ZERO)))
-                    .isInstanceOf(EngineActionException.class)
-                    .hasMessageContaining("FailExternalTask")
-                    .hasMessageContaining("not supported");
-        }
+    void completeRequestEncodeFailureIsWrappedAsADefiniteEngineActionException() {
+        WaitState waitState = waitState("pi-1", "pi-1");
+        CompleteExternalTask complete = new CompleteExternalTask(withVariables(Map.of("amount", BigDecimal.TEN)));
+
+        assertThatThrownBy(() -> Camunda7EngineAdapter.buildCompleteRequest(waitState, "worker-1", complete))
+                .isInstanceOf(EngineActionException.class)
+                .hasMessageContaining("CompleteExternalTask")
+                .hasMessageContaining("task-1")
+                .hasCauseInstanceOf(IllegalArgumentException.class);
     }
 
-    private static Camunda7EngineAdapter newAdapter() {
-        return new Camunda7EngineAdapter(new EngineConfig(
-                URI.create("http://localhost:1/engine-rest"), Duration.ofSeconds(1), Duration.ofSeconds(30),
-                "test-worker", 50, Map.of()));
+    @Test
+    void buildsBpmnErrorRequestOmittingNullErrorMessageAndEncodingVariables() {
+        WaitState waitState = waitState("pi-1", "pi-1");
+        ThrowBpmnError bpmnError = new ThrowBpmnError("IT_REJECTED", null, withVariables(Map.of("reason", "fraud")));
+
+        BpmnErrorRequest request = Camunda7EngineAdapter.buildBpmnErrorRequest(waitState, "worker-1", bpmnError);
+
+        assertThat(request.workerId()).isEqualTo("worker-1");
+        assertThat(request.errorCode()).isEqualTo("IT_REJECTED");
+        assertThat(request.errorMessage()).isNull();
+        assertThat(request.variables()).containsExactly(Map.entry("reason", new TypedValueDto("fraud", "String", null)));
+    }
+
+    @Test
+    void buildsBpmnErrorRequestWithAnErrorMessage() {
+        WaitState waitState = waitState("pi-1", "pi-1");
+        ThrowBpmnError bpmnError = new ThrowBpmnError("IT_REJECTED", "rejected by test", Variables.empty());
+
+        BpmnErrorRequest request = Camunda7EngineAdapter.buildBpmnErrorRequest(waitState, "worker-1", bpmnError);
+
+        assertThat(request.errorMessage()).isEqualTo("rejected by test");
+        assertThat(request.variables()).isEmpty();
+    }
+
+    @Test
+    void bpmnErrorRequestEncodeFailureIsWrappedAsADefiniteEngineActionException() {
+        WaitState waitState = waitState("pi-1", "pi-1");
+        ThrowBpmnError bpmnError =
+                new ThrowBpmnError("IT_REJECTED", null, withVariables(Map.of("amount", BigDecimal.TEN)));
+
+        assertThatThrownBy(() -> Camunda7EngineAdapter.buildBpmnErrorRequest(waitState, "worker-1", bpmnError))
+                .isInstanceOf(EngineActionException.class)
+                .hasMessageContaining("ThrowBpmnError")
+                .hasCauseInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void buildsFailureRequestConvertingRetryTimeoutToMilliseconds() {
+        WaitState waitState = waitState("pi-1", "pi-1");
+        FailExternalTask failure = new FailExternalTask("transient", 2, Duration.ofMinutes(5));
+
+        FailureRequest request = Camunda7EngineAdapter.buildFailureRequest(waitState, "worker-1", failure);
+
+        assertThat(request.workerId()).isEqualTo("worker-1");
+        assertThat(request.errorMessage()).isEqualTo("transient");
+        assertThat(request.retries()).isEqualTo(2);
+        assertThat(request.retryTimeout()).isEqualTo(Duration.ofMinutes(5).toMillis());
+    }
+
+    @Test
+    void buildsFailureRequestWithZeroRetries() {
+        WaitState waitState = waitState("pi-1", "pi-1");
+        FailExternalTask failure = new FailExternalTask("boom", 0, Duration.ZERO);
+
+        FailureRequest request = Camunda7EngineAdapter.buildFailureRequest(waitState, "worker-1", failure);
+
+        assertThat(request.retries()).isEqualTo(0);
+        assertThat(request.retryTimeout()).isEqualTo(0L);
     }
 
     private static WaitState waitState(String processInstanceId, String executionId) {
