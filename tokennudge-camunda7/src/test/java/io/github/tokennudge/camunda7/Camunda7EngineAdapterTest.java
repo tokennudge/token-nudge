@@ -13,9 +13,11 @@ import io.github.tokennudge.model.ThrowBpmnError;
 import io.github.tokennudge.model.WaitState;
 import io.github.tokennudge.model.WaitStateKind;
 import io.github.tokennudge.spi.EngineActionException;
+import io.github.tokennudge.spi.EngineConfig;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
+import java.net.URI;
 import java.time.Duration;
 import java.util.Map;
 
@@ -194,6 +196,36 @@ class Camunda7EngineAdapterTest {
 
         assertThat(request.retries()).isEqualTo(0);
         assertThat(request.retryTimeout()).isEqualTo(0L);
+    }
+
+    @Test
+    void failureRequestRetryTimeoutOverflowIsWrappedAsADefiniteEngineActionExceptionNotOutcomeUnknown() {
+        WaitState waitState = waitState("pi-1", "pi-1");
+        // Duration.ofSeconds(Long.MAX_VALUE / 500).toMillis() overflows long arithmetic and
+        // throws ArithmeticException, which must be caught here (not just IllegalArgumentException).
+        FailExternalTask failure = new FailExternalTask("boom", 1, Duration.ofSeconds(Long.MAX_VALUE / 500));
+
+        assertThatThrownBy(() -> Camunda7EngineAdapter.buildFailureRequest(waitState, "worker-1", failure))
+                .isInstanceOf(EngineActionException.class)
+                .hasMessageContaining("FailExternalTask")
+                .hasMessageContaining("task-1")
+                .hasMessageNotContaining("outcome unknown")
+                .hasCauseInstanceOf(ArithmeticException.class);
+    }
+
+    @Test
+    void executeRejectsANonExternalTaskWaitStateWithADefiniteEngineActionException() {
+        Camunda7EngineAdapter adapter = new Camunda7EngineAdapter(new EngineConfig(
+                URI.create("http://127.0.0.1:1"), Duration.ofSeconds(1), Duration.ofSeconds(30),
+                "worker-1", 50, Map.of()));
+        WaitState userTask = new WaitState(
+                WaitStateKind.USER_TASK, "task-1", "review", "pi-1", "it-review", "reviewTask", "order-1", "pi-1",
+                null);
+
+        assertThatThrownBy(() -> adapter.execute(userTask, new CompleteExternalTask(Variables.empty())))
+                .isInstanceOf(EngineActionException.class)
+                .hasMessageContaining("USER_TASK")
+                .hasMessageContaining("task-1");
     }
 
     private static WaitState waitState(String processInstanceId, String executionId) {

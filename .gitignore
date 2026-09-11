@@ -20,3 +20,7 @@ buildNumber.properties
 .idea/
 *.iml
 
+# Claude Code: local settings stay local, shared agents are committed
+.claude/settings.json
+.claude/settings.local.json
+

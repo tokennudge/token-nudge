@@ -110,7 +110,10 @@ public final class ExternalTaskSpec extends WaitStateSpec<ExternalTaskSpec> {
      * @param retries      the number of retries left after this failure; {@code 0} creates
      *                     an incident, must not be negative
      * @param retryTimeout the delay before the task becomes available again for retry,
-     *                     never {@code null}, must not be negative
+     *                     never {@code null}, must not be negative. With {@code retries > 0}
+     *                     and {@link Duration#ZERO}, the task is immediately fetchable again;
+     *                     this run leaves it alone (already recorded as handled), but a later
+     *                     {@code reset()} lets it be discovered and handled again
      * @return a new simulation
      * @throws NullPointerException     if {@code errorMessage} or {@code retryTimeout} is
      *                                  {@code null}

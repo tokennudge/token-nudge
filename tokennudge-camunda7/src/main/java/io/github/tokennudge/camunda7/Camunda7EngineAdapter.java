@@ -31,11 +31,14 @@ import java.util.Map;
  * {@link EngineAdapter} implementation talking to a Camunda 7 / CIB Seven engine-rest
  * instance through {@link EngineRestClient}.
  *
- * <p>As of this iteration (6b), the external-task path is fully implemented: completion,
+ * <p>As of this iteration (6b/7), the external-task path is fully implemented: completion,
  * {@link ThrowBpmnError}, and {@link FailExternalTask}. {@link WaitStateKind#USER_TASK}/
  * {@link WaitStateKind#MESSAGE_SUBSCRIPTION} discovery still returns an empty list
- * (iterations 9 and 10), and any action not applicable to an external task is rejected with
- * a clear {@link EngineActionException} rather than silently ignored.
+ * (iterations 9 and 10); {@link #execute(WaitState, io.github.tokennudge.model.Action)}
+ * explicitly guards against being called with a non-{@link WaitStateKind#EXTERNAL_TASK}
+ * wait state (which cannot happen yet via this adapter's own {@link #discover} results, but
+ * could via a future kind or a test-only wrapper) and rejects it with a clear
+ * {@link EngineActionException} rather than silently ignoring it.
  *
  * <p>Implements the adapter failure contract documented on {@link EngineAdapter}'s class
  * Javadoc: {@link EngineRestClient} already maps every {@code java.net.http.HttpClient}
@@ -211,14 +214,26 @@ final class Camunda7EngineAdapter implements EngineAdapter {
      * {@link EngineActionException} for anything genuinely not applicable to an external
      * task, rather than silently ignoring it.
      *
-     * <p>A failure to encode the request body itself &mdash; for example
-     * {@link VariableCodec#encode(Object)} rejecting an unsupported variable value &mdash;
-     * happens before any HTTP call is made and is wrapped here as a definite
-     * {@link EngineActionException}, never left as an ambiguous outcome: nothing was ever
+     * <p>A failure to build the request body itself &mdash; for example
+     * {@link VariableCodec#encode(Object)} rejecting an unsupported variable value, or
+     * {@link FailExternalTask#retryTimeout()} overflowing {@link java.time.Duration#toMillis()}
+     * &mdash; happens before any HTTP call is made and is wrapped here as a definite
+     * {@link EngineActionException} (every {@code build*Request} helper below catches any
+     * {@link RuntimeException} raised while assembling the request, not only
+     * {@link IllegalArgumentException}), never left as an ambiguous outcome: nothing was ever
      * sent to the engine, so the loop must not journal it as "outcome unknown".
+     *
+     * @throws EngineActionException if {@code waitState} is not a
+     *                                {@link WaitStateKind#EXTERNAL_TASK}: no action defined so
+     *                                far applies to any other kind
      */
     @Override
     public void execute(WaitState waitState, Action action) {
+        if (waitState.kind() != WaitStateKind.EXTERNAL_TASK) {
+            throw new EngineActionException(
+                    "cannot execute " + action.getClass().getSimpleName() + " against a " + waitState.kind()
+                            + " wait state (" + waitState.id() + "): only EXTERNAL_TASK is supported");
+        }
         switch (action) {
             case CompleteExternalTask complete -> completeExternalTask(waitState, complete);
             case ThrowBpmnError bpmnError -> throwBpmnError(waitState, bpmnError);
@@ -235,7 +250,7 @@ final class Camunda7EngineAdapter implements EngineAdapter {
             WaitState waitState, String workerId, CompleteExternalTask complete) {
         try {
             return new CompleteExternalTaskRequest(workerId, encodeVariables(complete.variables()));
-        } catch (IllegalArgumentException e) {
+        } catch (RuntimeException e) {
             throw encodingFailure("CompleteExternalTask", waitState, e);
         }
     }
@@ -257,7 +272,7 @@ final class Camunda7EngineAdapter implements EngineAdapter {
         try {
             return new BpmnErrorRequest(
                     workerId, bpmnError.errorCode(), bpmnError.errorMessage(), encodeVariables(bpmnError.variables()));
-        } catch (IllegalArgumentException e) {
+        } catch (RuntimeException e) {
             throw encodingFailure("ThrowBpmnError", waitState, e);
         }
     }
@@ -277,7 +292,10 @@ final class Camunda7EngineAdapter implements EngineAdapter {
         try {
             return new FailureRequest(
                     workerId, failure.errorMessage(), failure.retries(), failure.retryTimeout().toMillis());
-        } catch (IllegalArgumentException e) {
+        } catch (RuntimeException e) {
+            // Variables.of(...) rejects unsupported types with IllegalArgumentException before this
+            // point; Duration.toMillis() can also throw ArithmeticException on overflow (for example
+            // Duration.ofSeconds(Long.MAX_VALUE / 500)). Either way, nothing has been sent yet.
             throw encodingFailure("FailExternalTask", waitState, e);
         }
     }
@@ -289,7 +307,7 @@ final class Camunda7EngineAdapter implements EngineAdapter {
     }
 
     private static EngineActionException encodingFailure(
-            String actionName, WaitState waitState, IllegalArgumentException cause) {
+            String actionName, WaitState waitState, RuntimeException cause) {
         return new EngineActionException(
                 "could not encode " + actionName + " request for external task " + waitState.id()
                         + " before sending it to the engine: " + cause.getMessage(), cause);
