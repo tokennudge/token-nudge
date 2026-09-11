@@ -1,17 +1,25 @@
 package io.github.tokennudge.camunda7;
 
+import io.github.tokennudge.CorrelationStrategy;
 import io.github.tokennudge.Variables;
 import io.github.tokennudge.camunda7.dto.BpmnErrorRequest;
 import io.github.tokennudge.camunda7.dto.CompleteExternalTaskRequest;
+import io.github.tokennudge.camunda7.dto.CompleteTaskRequest;
+import io.github.tokennudge.camunda7.dto.EventSubscriptionDto;
 import io.github.tokennudge.camunda7.dto.ExternalTaskDto;
 import io.github.tokennudge.camunda7.dto.FailureRequest;
+import io.github.tokennudge.camunda7.dto.MessageCorrelationRequest;
+import io.github.tokennudge.camunda7.dto.TaskDto;
 import io.github.tokennudge.camunda7.dto.TypedValueDto;
 import io.github.tokennudge.camunda7.dto.VariableInstanceDto;
 import io.github.tokennudge.model.CompleteExternalTask;
+import io.github.tokennudge.model.CompleteUserTask;
+import io.github.tokennudge.model.CorrelateMessage;
 import io.github.tokennudge.model.FailExternalTask;
 import io.github.tokennudge.model.ThrowBpmnError;
 import io.github.tokennudge.model.WaitState;
 import io.github.tokennudge.model.WaitStateKind;
+import io.github.tokennudge.spi.ClaimResult;
 import io.github.tokennudge.spi.EngineActionException;
 import io.github.tokennudge.spi.EngineConfig;
 import org.junit.jupiter.api.Test;
@@ -226,6 +234,184 @@ class Camunda7EngineAdapterTest {
                 .isInstanceOf(EngineActionException.class)
                 .hasMessageContaining("USER_TASK")
                 .hasMessageContaining("task-1");
+    }
+
+    @Test
+    void executeRejectsAnExternalTaskWaitStateForCompleteUserTask() {
+        Camunda7EngineAdapter adapter = new Camunda7EngineAdapter(new EngineConfig(
+                URI.create("http://127.0.0.1:1"), Duration.ofSeconds(1), Duration.ofSeconds(30),
+                "worker-1", 50, Map.of()));
+        WaitState externalTask = waitState("pi-1", "pi-1");
+
+        assertThatThrownBy(() -> adapter.execute(externalTask, new CompleteUserTask(Variables.empty())))
+                .isInstanceOf(EngineActionException.class)
+                .hasMessageContaining("EXTERNAL_TASK")
+                .hasMessageContaining("task-1");
+    }
+
+    @Test
+    void executeRejectsANonMessageWaitStateForCorrelateMessage() {
+        Camunda7EngineAdapter adapter = new Camunda7EngineAdapter(new EngineConfig(
+                URI.create("http://127.0.0.1:1"), Duration.ofSeconds(1), Duration.ofSeconds(30),
+                "worker-1", 50, Map.of()));
+        WaitState externalTask = waitState("pi-1", "pi-1");
+
+        assertThatThrownBy(() -> adapter.execute(
+                externalTask, new CorrelateMessage(new CorrelationStrategy.ByProcessInstance(), Variables.empty())))
+                .isInstanceOf(EngineActionException.class)
+                .hasMessageContaining("MESSAGE_SUBSCRIPTION")
+                .hasMessageContaining("task-1");
+    }
+
+    @Test
+    void claimReturnsClaimedWithoutAnEngineCallForAUserTask() {
+        Camunda7EngineAdapter adapter = new Camunda7EngineAdapter(new EngineConfig(
+                URI.create("http://127.0.0.1:1"), Duration.ofSeconds(1), Duration.ofSeconds(30),
+                "worker-1", 50, Map.of()));
+        WaitState userTask = new WaitState(
+                WaitStateKind.USER_TASK, "task-1", "review", "pi-1", "it-review", "reviewTask", "order-1", "pi-1",
+                null);
+
+        assertThat(adapter.claim(userTask)).isEqualTo(ClaimResult.CLAIMED);
+    }
+
+    @Test
+    void claimReturnsClaimedWithoutAnEngineCallForAMessageSubscription() {
+        Camunda7EngineAdapter adapter = new Camunda7EngineAdapter(new EngineConfig(
+                URI.create("http://127.0.0.1:1"), Duration.ofSeconds(1), Duration.ofSeconds(30),
+                "worker-1", 50, Map.of()));
+        WaitState message = new WaitState(
+                WaitStateKind.MESSAGE_SUBSCRIPTION, "sub-1", "PaymentConfirmed", "pi-1", "it-message-catch",
+                "confirm", "order-1", "pi-1", null);
+
+        assertThat(adapter.claim(message)).isEqualTo(ClaimResult.CLAIMED);
+    }
+
+    @Test
+    void mapsTaskDtoToWaitState() {
+        TaskDto dto = new TaskDto(
+                "task-1", "Review", "review", "pi-1", "exec-1", "def-id-1", null, null, "2026-01-01T00:00:00.000+0000",
+                null, 50, false, "tenant-1", null, null);
+        ProcessInstanceResolver.ProcessInstanceInfo info =
+                new ProcessInstanceResolver.ProcessInstanceInfo("order-1", "it-user-task");
+
+        WaitState waitState = Camunda7EngineAdapter.toWaitState(dto, info);
+
+        assertThat(waitState.kind()).isEqualTo(WaitStateKind.USER_TASK);
+        assertThat(waitState.id()).isEqualTo("task-1");
+        assertThat(waitState.name()).isEqualTo("review");
+        assertThat(waitState.activityId()).isEqualTo("review");
+        assertThat(waitState.processInstanceId()).isEqualTo("pi-1");
+        assertThat(waitState.processDefinitionKey()).isEqualTo("it-user-task");
+        assertThat(waitState.businessKey()).isEqualTo("order-1");
+        assertThat(waitState.executionId()).isEqualTo("exec-1");
+        assertThat(waitState.tenantId()).isEqualTo("tenant-1");
+    }
+
+    @Test
+    void mapsEventSubscriptionDtoToWaitState() {
+        EventSubscriptionDto dto = new EventSubscriptionDto(
+                "sub-1", "message", "PaymentConfirmed", "exec-1", "pi-1", "confirm", "tenant-1",
+                "2026-01-01T00:00:00.000+0000");
+        ProcessInstanceResolver.ProcessInstanceInfo info =
+                new ProcessInstanceResolver.ProcessInstanceInfo("order-1", "it-message-catch");
+
+        WaitState waitState = Camunda7EngineAdapter.toWaitState(dto, info);
+
+        assertThat(waitState.kind()).isEqualTo(WaitStateKind.MESSAGE_SUBSCRIPTION);
+        assertThat(waitState.id()).isEqualTo("sub-1");
+        assertThat(waitState.name()).isEqualTo("PaymentConfirmed");
+        assertThat(waitState.activityId()).isEqualTo("confirm");
+        assertThat(waitState.processInstanceId()).isEqualTo("pi-1");
+        assertThat(waitState.processDefinitionKey()).isEqualTo("it-message-catch");
+        assertThat(waitState.businessKey()).isEqualTo("order-1");
+        assertThat(waitState.executionId()).isEqualTo("exec-1");
+        assertThat(waitState.tenantId()).isEqualTo("tenant-1");
+    }
+
+    @Test
+    void buildsCompleteTaskRequestEncodingVariables() {
+        WaitState waitState = new WaitState(
+                WaitStateKind.USER_TASK, "task-1", "review", "pi-1", "it-user-task", "review", "order-1", "pi-1",
+                null);
+        CompleteUserTask complete = new CompleteUserTask(withVariables(Map.of("approved", true)));
+
+        CompleteTaskRequest request = Camunda7EngineAdapter.buildCompleteTaskRequest(waitState, complete);
+
+        assertThat(request.variables()).containsExactly(Map.entry("approved", new TypedValueDto(true, "Boolean", null)));
+    }
+
+    @Test
+    void completeTaskRequestEncodeFailureIsWrappedAsADefiniteEngineActionException() {
+        WaitState waitState = new WaitState(
+                WaitStateKind.USER_TASK, "task-1", "review", "pi-1", "it-user-task", "review", "order-1", "pi-1",
+                null);
+        CompleteUserTask complete = new CompleteUserTask(withVariables(Map.of("amount", BigDecimal.TEN)));
+
+        assertThatThrownBy(() -> Camunda7EngineAdapter.buildCompleteTaskRequest(waitState, complete))
+                .isInstanceOf(EngineActionException.class)
+                .hasMessageContaining("CompleteUserTask")
+                .hasMessageContaining("task-1")
+                .hasCauseInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void buildsMessageCorrelationRequestByProcessInstance() {
+        WaitState waitState = new WaitState(
+                WaitStateKind.MESSAGE_SUBSCRIPTION, "sub-1", "PaymentConfirmed", "pi-1", "it-message-catch",
+                "confirm", "order-1", "pi-1", null);
+        CorrelateMessage correlate = new CorrelateMessage(
+                new CorrelationStrategy.ByProcessInstance(), withVariables(Map.of("confirmed", true)));
+
+        MessageCorrelationRequest request = Camunda7EngineAdapter.buildMessageCorrelationRequest(waitState, correlate);
+
+        assertThat(request.messageName()).isEqualTo("PaymentConfirmed");
+        assertThat(request.processInstanceId()).isEqualTo("pi-1");
+        assertThat(request.businessKey()).isNull();
+        assertThat(request.resultEnabled()).isTrue();
+        assertThat(request.processVariables())
+                .containsExactly(Map.entry("confirmed", new TypedValueDto(true, "Boolean", null)));
+    }
+
+    @Test
+    void buildsMessageCorrelationRequestByBusinessKey() {
+        WaitState waitState = new WaitState(
+                WaitStateKind.MESSAGE_SUBSCRIPTION, "sub-1", "PaymentConfirmed", "pi-1", "it-message-catch",
+                "confirm", "order-1", "pi-1", null);
+        CorrelateMessage correlate = new CorrelateMessage(new CorrelationStrategy.ByBusinessKey(), Variables.empty());
+
+        MessageCorrelationRequest request = Camunda7EngineAdapter.buildMessageCorrelationRequest(waitState, correlate);
+
+        assertThat(request.messageName()).isEqualTo("PaymentConfirmed");
+        assertThat(request.processInstanceId()).isNull();
+        assertThat(request.businessKey()).isEqualTo("order-1");
+    }
+
+    @Test
+    void byBusinessKeyWithNoBusinessKeyIsADefiniteEngineActionException() {
+        WaitState waitState = new WaitState(
+                WaitStateKind.MESSAGE_SUBSCRIPTION, "sub-1", "PaymentConfirmed", "pi-1", "it-message-catch",
+                "confirm", null, "pi-1", null);
+        CorrelateMessage correlate = new CorrelateMessage(new CorrelationStrategy.ByBusinessKey(), Variables.empty());
+
+        assertThatThrownBy(() -> Camunda7EngineAdapter.buildMessageCorrelationRequest(waitState, correlate))
+                .isInstanceOf(EngineActionException.class)
+                .hasMessageContaining("PaymentConfirmed")
+                .hasMessageContaining("business key");
+    }
+
+    @Test
+    void messageCorrelationRequestEncodeFailureIsWrappedAsADefiniteEngineActionException() {
+        WaitState waitState = new WaitState(
+                WaitStateKind.MESSAGE_SUBSCRIPTION, "sub-1", "PaymentConfirmed", "pi-1", "it-message-catch",
+                "confirm", "order-1", "pi-1", null);
+        CorrelateMessage correlate =
+                new CorrelateMessage(new CorrelationStrategy.ByProcessInstance(), withVariables(Map.of("amount", BigDecimal.TEN)));
+
+        assertThatThrownBy(() -> Camunda7EngineAdapter.buildMessageCorrelationRequest(waitState, correlate))
+                .isInstanceOf(EngineActionException.class)
+                .hasMessageContaining("CorrelateMessage")
+                .hasCauseInstanceOf(IllegalArgumentException.class);
     }
 
     private static WaitState waitState(String processInstanceId, String executionId) {

@@ -46,4 +46,36 @@ class TokenNudgeTest {
         assertThat(TokenNudge.noVariables()).isEqualTo(Variables.empty());
         assertThat(TokenNudge.noVariables().isEmpty()).isTrue();
     }
+
+    @Test
+    void userTaskCreatesASpecForTheGivenTaskDefinitionKey() {
+        UserTaskSpec spec = TokenNudge.userTask("approve-shipment");
+        assertThat(spec.selector().name()).isEqualTo("approve-shipment");
+    }
+
+    @Test
+    void userTaskRejectsNullTaskDefinitionKey() {
+        assertThatNullPointerException().isThrownBy(() -> TokenNudge.userTask(null));
+    }
+
+    @Test
+    void messageCreatesASpecForTheGivenMessageName() {
+        MessageSpec spec = TokenNudge.message("PaymentConfirmed");
+        assertThat(spec.selector().name()).isEqualTo("PaymentConfirmed");
+    }
+
+    @Test
+    void messageRejectsNullMessageName() {
+        assertThatNullPointerException().isThrownBy(() -> TokenNudge.message(null));
+    }
+
+    @Test
+    void businessKeyReturnsAByBusinessKeyStrategy() {
+        assertThat(TokenNudge.businessKey()).isEqualTo(new CorrelationStrategy.ByBusinessKey());
+    }
+
+    @Test
+    void processInstanceReturnsAByProcessInstanceStrategy() {
+        assertThat(TokenNudge.processInstance()).isEqualTo(new CorrelationStrategy.ByProcessInstance());
+    }
 }

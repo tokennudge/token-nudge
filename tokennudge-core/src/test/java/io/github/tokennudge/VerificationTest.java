@@ -1,6 +1,8 @@
 package io.github.tokennudge;
 
 import io.github.tokennudge.model.CompleteExternalTask;
+import io.github.tokennudge.model.CompleteUserTask;
+import io.github.tokennudge.model.CorrelateMessage;
 import io.github.tokennudge.model.FailExternalTask;
 import io.github.tokennudge.model.JournalEntry;
 import io.github.tokennudge.model.Outcome;
@@ -176,6 +178,35 @@ class VerificationTest {
 
         assertThat(verification.matches(failed)).isTrue();
         assertThat(verification.matches(completed)).isFalse();
+    }
+
+    @Test
+    void completedUserTaskRequiresCompleteUserTaskAction() {
+        Verification verification = TokenNudge.userTask("approve-shipment").completed();
+        WaitState waitState = JournalEntries.userTask("task-1", "approve-shipment");
+
+        JournalEntry completed = JournalEntries.entry(
+                waitState, Outcome.HANDLED, new CompleteUserTask(Variables.empty()), Map.of());
+        JournalEntry unmatched = JournalEntries.unmatched(waitState);
+
+        assertThat(verification.matches(completed)).isTrue();
+        assertThat(verification.matches(unmatched)).isFalse();
+        assertThat(verification.matchesWaitState(unmatched)).isTrue();
+    }
+
+    @Test
+    void correlatedMessageRequiresCorrelateMessageAction() {
+        Verification verification = TokenNudge.message("PaymentConfirmed").correlated();
+        WaitState waitState = JournalEntries.message("sub-1", "PaymentConfirmed");
+
+        JournalEntry correlated = JournalEntries.entry(
+                waitState, Outcome.HANDLED,
+                new CorrelateMessage(new CorrelationStrategy.ByProcessInstance(), Variables.empty()), Map.of());
+        JournalEntry unmatched = JournalEntries.unmatched(waitState);
+
+        assertThat(verification.matches(correlated)).isTrue();
+        assertThat(verification.matches(unmatched)).isFalse();
+        assertThat(verification.matchesWaitState(unmatched)).isTrue();
     }
 
     @Test

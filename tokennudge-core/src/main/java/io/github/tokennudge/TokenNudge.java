@@ -46,6 +46,8 @@ import java.util.concurrent.locks.ReentrantLock;
 public final class TokenNudge implements NudgeOperations, AutoCloseable {
 
     private static final System.Logger LOGGER = System.getLogger(TokenNudge.class.getName());
+    private static final CorrelationStrategy BY_BUSINESS_KEY = new CorrelationStrategy.ByBusinessKey();
+    private static final CorrelationStrategy BY_PROCESS_INSTANCE = new CorrelationStrategy.ByProcessInstance();
 
     private enum State {
         NEW,
@@ -121,6 +123,52 @@ public final class TokenNudge implements NudgeOperations, AutoCloseable {
     public static ExternalTaskSpec externalTask(String topicName) {
         Objects.requireNonNull(topicName, "topicName must not be null");
         return new ExternalTaskSpec(topicName);
+    }
+
+    /**
+     * Starts building a selector/simulation/verification for a (human) user task, identified
+     * by its task definition key.
+     *
+     * @param taskDefinitionKey the user task's BPMN task definition key, never {@code null}
+     * @return a new spec matching any user task with this task definition key
+     * @throws NullPointerException if {@code taskDefinitionKey} is {@code null}
+     */
+    public static UserTaskSpec userTask(String taskDefinitionKey) {
+        Objects.requireNonNull(taskDefinitionKey, "taskDefinitionKey must not be null");
+        return new UserTaskSpec(taskDefinitionKey);
+    }
+
+    /**
+     * Starts building a selector/simulation/verification for a message wait state
+     * (intermediate catch event or receive task), identified by its message name.
+     *
+     * @param messageName the message name, never {@code null}
+     * @return a new spec matching any message wait state with this message name
+     * @throws NullPointerException if {@code messageName} is {@code null}
+     */
+    public static MessageSpec message(String messageName) {
+        Objects.requireNonNull(messageName, "messageName must not be null");
+        return new MessageSpec(messageName);
+    }
+
+    /**
+     * A {@link CorrelationStrategy} that correlates a message to the matched wait state's
+     * process instance's business key.
+     *
+     * @return the strategy
+     */
+    public static CorrelationStrategy businessKey() {
+        return BY_BUSINESS_KEY;
+    }
+
+    /**
+     * A {@link CorrelationStrategy} that correlates a message to the matched wait state's
+     * process instance id. This is the default used by {@link MessageSpec#willCorrelate()}.
+     *
+     * @return the strategy
+     */
+    public static CorrelationStrategy processInstance() {
+        return BY_PROCESS_INSTANCE;
     }
 
     /**

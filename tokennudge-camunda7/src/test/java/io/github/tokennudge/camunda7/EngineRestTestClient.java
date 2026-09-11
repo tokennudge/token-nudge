@@ -2,6 +2,7 @@ package io.github.tokennudge.camunda7;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import io.github.tokennudge.camunda7.dto.ExternalTaskDto;
+import io.github.tokennudge.camunda7.dto.TaskDto;
 import io.github.tokennudge.camunda7.dto.TypedValueDto;
 
 import java.io.ByteArrayOutputStream;
@@ -202,6 +203,21 @@ final class EngineRestTestClient {
     }
 
     /**
+     * Returns the user tasks currently open on a process instance.
+     *
+     * @param processInstanceId the process instance id
+     * @return the open user tasks
+     */
+    List<TaskDto> userTasks(String processInstanceId) {
+        JsonNode array = getJson("/task?processInstanceId=" + processInstanceId, 200);
+        List<TaskDto> result = new ArrayList<>();
+        for (JsonNode node : array) {
+            result.add(JsonSupport.MAPPER.convertValue(node, TaskDto.class));
+        }
+        return result;
+    }
+
+    /**
      * Returns the activity ids of every historic activity instance for a process instance,
      * in the order the engine reports them, so a test can confirm which path (for example a
      * boundary error's distinct end event) was actually taken.
@@ -216,6 +232,18 @@ final class EngineRestTestClient {
             result.add(node.get("activityId").asText());
         }
         return result;
+    }
+
+    /**
+     * Returns how many process instances currently exist for the given process definition
+     * key, so a test can confirm that a message start event was never triggered.
+     *
+     * @param processDefinitionKey the process definition key
+     * @return the number of running process instances
+     */
+    int activeProcessInstanceCount(String processDefinitionKey) {
+        JsonNode array = getJson("/process-instance?processDefinitionKey=" + processDefinitionKey, 200);
+        return array.size();
     }
 
     /**

@@ -2,6 +2,8 @@ package io.github.tokennudge;
 
 import io.github.tokennudge.model.Action;
 import io.github.tokennudge.model.CompleteExternalTask;
+import io.github.tokennudge.model.CompleteUserTask;
+import io.github.tokennudge.model.CorrelateMessage;
 import io.github.tokennudge.model.EqualsVariableMatcher;
 import io.github.tokennudge.model.FailExternalTask;
 import io.github.tokennudge.model.JournalEntry;
@@ -110,6 +112,26 @@ public final class Verification {
      */
     static Verification failedExternalTask(WaitStateSelector selector) {
         return initial(selector, handledWithAction(FailExternalTask.class::isInstance), "failed");
+    }
+
+    /**
+     * A verification that a user task was completed successfully.
+     *
+     * @param selector the selector identifying the user task, never {@code null}
+     * @return a new verification with the default expectation of {@code atLeast(1)}
+     */
+    static Verification completedUserTask(WaitStateSelector selector) {
+        return initial(selector, handledWithAction(CompleteUserTask.class::isInstance), "completed");
+    }
+
+    /**
+     * A verification that a message wait state was correlated successfully.
+     *
+     * @param selector the selector identifying the message wait state, never {@code null}
+     * @return a new verification with the default expectation of {@code atLeast(1)}
+     */
+    static Verification correlatedMessage(WaitStateSelector selector) {
+        return initial(selector, handledWithAction(CorrelateMessage.class::isInstance), "correlated");
     }
 
     private static Predicate<JournalEntry> handledWithAction(Predicate<Action> actionFilter) {

@@ -16,13 +16,13 @@ import java.util.function.Predicate;
  * simulation and verification sides of the API (for example {@link ExternalTaskSpec}).
  *
  * <p>Every builder method returns a new, independent instance; the receiver is never
- * mutated. As of this version, only {@link ExternalTaskSpec} is permitted; user-task and
- * message specs are added in later iterations.
+ * mutated. The permitted subtypes are {@link ExternalTaskSpec}, {@link UserTaskSpec}, and
+ * {@link MessageSpec}.
  *
  * @param <S> the concrete spec subtype, so that builder methods can return {@code S}
  *            instead of the abstract base type
  */
-public abstract sealed class WaitStateSpec<S extends WaitStateSpec<S>> permits ExternalTaskSpec {
+public abstract sealed class WaitStateSpec<S extends WaitStateSpec<S>> permits ExternalTaskSpec, UserTaskSpec, MessageSpec {
 
     private final WaitStateKind kind;
     private final String name;

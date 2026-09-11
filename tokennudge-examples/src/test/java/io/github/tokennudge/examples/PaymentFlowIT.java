@@ -22,7 +22,10 @@ import java.net.ServerSocket;
 import java.time.Duration;
 import java.util.Map;
 
+import static io.github.tokennudge.TokenNudge.businessKey;
 import static io.github.tokennudge.TokenNudge.externalTask;
+import static io.github.tokennudge.TokenNudge.message;
+import static io.github.tokennudge.TokenNudge.userTask;
 import static io.github.tokennudge.TokenNudge.withVariables;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
@@ -67,10 +70,12 @@ class PaymentFlowIT {
     }
 
     @Test
-    void happyPathChargesTheCardAndMarksTheOrderCompleted() {
+    void happyPathChargesTheCardConfirmsPaymentApprovesShipmentAndMarksTheOrderCompleted() {
         nudge.simulate(externalTask("risk-check").inProcess("payment").willComplete());
         nudge.simulate(externalTask("charge-card").inProcess("payment")
                 .willComplete(withVariables(Map.of("authorized", true))));
+        nudge.simulate(message("PaymentConfirmed").inProcess("payment").willCorrelateBy(businessKey()));
+        nudge.simulate(userTask("approve-shipment").inProcess("payment").willComplete());
 
         String orderId = createOrder(4200);
 
@@ -78,6 +83,12 @@ class PaymentFlowIT {
                 assertThat(getOrder(orderId).status()).isEqualTo(OrderStatus.COMPLETED));
 
         nudge.verify(externalTask("charge-card").completed().times(1).withVariable("amount", 4200));
+        // reached()/never() only means anything for a wait state some rule covers (see the
+        // iteration 8 review lesson in docs/PROGRESS.md); both are covered by the simulations
+        // registered above, so these assert the new steps were actually driven by TokenNudge,
+        // not just skipped past.
+        nudge.verify(message("PaymentConfirmed").correlated().times(1));
+        nudge.verify(userTask("approve-shipment").completed().times(1));
     }
 
     @Test

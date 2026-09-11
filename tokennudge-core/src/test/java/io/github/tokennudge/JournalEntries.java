@@ -25,6 +25,18 @@ final class JournalEntries {
                 WaitStateKind.EXTERNAL_TASK, id, topic, "pi-1", "payment", "act", "order-42", "ex-1", null);
     }
 
+    static WaitState userTask(String id, String taskDefinitionKey) {
+        return new WaitState(
+                WaitStateKind.USER_TASK, id, taskDefinitionKey, "pi-1", "payment", taskDefinitionKey, "order-42",
+                "ex-1", null);
+    }
+
+    static WaitState message(String id, String messageName) {
+        return new WaitState(
+                WaitStateKind.MESSAGE_SUBSCRIPTION, id, messageName, "pi-1", "payment", "act", "order-42", "ex-1",
+                null);
+    }
+
     static JournalEntry entry(WaitState waitState, Outcome outcome, Action action, Map<String, Object> variables) {
         return new JournalEntry(
                 sequence++,

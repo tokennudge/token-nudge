@@ -10,7 +10,15 @@
     <sequenceFlow id="flow2" sourceRef="riskCheckTask" targetRef="chargeCardTask" />
 
     <serviceTask id="chargeCardTask" name="Charge card" camunda:type="external" camunda:topic="charge-card" />
-    <sequenceFlow id="flow3" sourceRef="chargeCardTask" targetRef="markCompletedTask" />
+    <sequenceFlow id="flow3" sourceRef="chargeCardTask" targetRef="paymentConfirmedCatch" />
+
+    <intermediateCatchEvent id="paymentConfirmedCatch" name="Wait for payment confirmation">
+      <messageEventDefinition messageRef="paymentConfirmed" />
+    </intermediateCatchEvent>
+    <sequenceFlow id="flow7" sourceRef="paymentConfirmedCatch" targetRef="approve-shipment" />
+
+    <userTask id="approve-shipment" name="Approve shipment" />
+    <sequenceFlow id="flow8" sourceRef="approve-shipment" targetRef="markCompletedTask" />
 
     <serviceTask id="markCompletedTask" name="Mark order completed"
                  camunda:delegateExpression="${markCompletedDelegate}" />
@@ -29,4 +37,5 @@
   </process>
 
   <error id="riskRejectedError" errorCode="RISK_REJECTED" name="RiskRejected" />
+  <message id="paymentConfirmed" name="PaymentConfirmed" />
 </definitions>

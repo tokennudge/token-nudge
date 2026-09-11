@@ -1,16 +1,24 @@
 package io.github.tokennudge.camunda7;
 
+import io.github.tokennudge.CorrelationStrategy;
 import io.github.tokennudge.Variables;
 import io.github.tokennudge.camunda7.dto.BpmnErrorRequest;
 import io.github.tokennudge.camunda7.dto.CompleteExternalTaskRequest;
+import io.github.tokennudge.camunda7.dto.CompleteTaskRequest;
+import io.github.tokennudge.camunda7.dto.EventSubscriptionDto;
 import io.github.tokennudge.camunda7.dto.ExternalTaskDto;
 import io.github.tokennudge.camunda7.dto.ExternalTaskQueryRequest;
 import io.github.tokennudge.camunda7.dto.FailureRequest;
 import io.github.tokennudge.camunda7.dto.LockExternalTaskRequest;
+import io.github.tokennudge.camunda7.dto.MessageCorrelationRequest;
+import io.github.tokennudge.camunda7.dto.TaskDto;
+import io.github.tokennudge.camunda7.dto.TaskQueryRequest;
 import io.github.tokennudge.camunda7.dto.TypedValueDto;
 import io.github.tokennudge.camunda7.dto.VariableInstanceDto;
 import io.github.tokennudge.model.Action;
 import io.github.tokennudge.model.CompleteExternalTask;
+import io.github.tokennudge.model.CompleteUserTask;
+import io.github.tokennudge.model.CorrelateMessage;
 import io.github.tokennudge.model.FailExternalTask;
 import io.github.tokennudge.model.ThrowBpmnError;
 import io.github.tokennudge.model.WaitState;
@@ -24,21 +32,21 @@ import io.github.tokennudge.spi.EngineConfig;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * {@link EngineAdapter} implementation talking to a Camunda 7 / CIB Seven engine-rest
  * instance through {@link EngineRestClient}.
  *
- * <p>As of this iteration (6b/7), the external-task path is fully implemented: completion,
- * {@link ThrowBpmnError}, and {@link FailExternalTask}. {@link WaitStateKind#USER_TASK}/
- * {@link WaitStateKind#MESSAGE_SUBSCRIPTION} discovery still returns an empty list
- * (iterations 9 and 10); {@link #execute(WaitState, io.github.tokennudge.model.Action)}
- * explicitly guards against being called with a non-{@link WaitStateKind#EXTERNAL_TASK}
- * wait state (which cannot happen yet via this adapter's own {@link #discover} results, but
- * could via a future kind or a test-only wrapper) and rejects it with a clear
- * {@link EngineActionException} rather than silently ignoring it.
+ * <p>All three wait-state kinds are implemented: external tasks (completion,
+ * {@link ThrowBpmnError}, {@link FailExternalTask}), user tasks ({@link CompleteUserTask}),
+ * and message subscriptions ({@link CorrelateMessage}). {@link #execute(WaitState, Action)}
+ * guards every case against being called with a mismatched wait-state kind (which cannot
+ * happen via this adapter's own {@link #discover} results, but could via a test-only wrapper)
+ * and rejects it with a clear {@link EngineActionException} rather than silently ignoring it.
  *
  * <p>Implements the adapter failure contract documented on {@link EngineAdapter}'s class
  * Javadoc: {@link EngineRestClient} already maps every {@code java.net.http.HttpClient}
@@ -52,10 +60,12 @@ final class Camunda7EngineAdapter implements EngineAdapter {
 
     private final EngineConfig config;
     private final EngineRestClient client;
+    private final ProcessInstanceResolver processInstanceResolver;
 
     Camunda7EngineAdapter(EngineConfig config) {
         this.config = config;
         this.client = new EngineRestClient(config);
+        this.processInstanceResolver = new ProcessInstanceResolver(client);
     }
 
     /**
@@ -89,15 +99,21 @@ final class Camunda7EngineAdapter implements EngineAdapter {
     }
 
     /**
-     * Discovers external tasks per topic via {@code POST /external-task}. User tasks and
-     * message subscriptions are not discovered yet (iterations 9 and 10) and return an empty
-     * list rather than throwing.
+     * Discovers wait states of the given kind: external tasks via {@code POST /external-task}
+     * (one call per topic, DTOs already include {@code processDefinitionKey}/
+     * {@code businessKey}), user tasks via {@code POST /task} (one batched call for every
+     * task definition key), or message subscriptions via {@code GET /event-subscription} (one
+     * call per message name). Task and event-subscription DTOs lack
+     * {@code processDefinitionKey}/{@code businessKey}, so both are enriched via
+     * {@link #processInstanceResolver} with a single batched
+     * {@code POST /process-instance} call per {@code discover} invocation.
      */
     @Override
     public List<WaitState> discover(DiscoveryQuery query) {
         return switch (query.kind()) {
             case EXTERNAL_TASK -> discoverExternalTasks(query);
-            case USER_TASK, MESSAGE_SUBSCRIPTION -> List.of();
+            case USER_TASK -> discoverUserTasks(query);
+            case MESSAGE_SUBSCRIPTION -> discoverMessageSubscriptions(query);
         };
     }
 
@@ -129,7 +145,104 @@ final class Camunda7EngineAdapter implements EngineAdapter {
     }
 
     /**
-     * Claims an external task via {@code POST /external-task/{id}/lock}.
+     * Discovers user tasks via {@code POST /task}. A task with no {@code processInstanceId}
+     * (a standalone, non-process task) is not a BPMN wait state and is skipped. Every
+     * remaining task's owning process instance is resolved in one batched call via
+     * {@link #processInstanceResolver}; a task whose process instance could not be resolved
+     * (for example, it ended between this query and the resolve call) is also skipped, since
+     * a wait state without a reliable {@code processDefinitionKey}/{@code businessKey} could
+     * silently defeat {@code inProcess}/{@code withBusinessKey} filtering.
+     */
+    private List<WaitState> discoverUserTasks(DiscoveryQuery query) {
+        TaskDto[] tasks = client.postJson(
+                "/task?maxResults=" + query.maxResults(),
+                new TaskQueryRequest(List.copyOf(query.names()), true),
+                TaskDto[].class);
+        List<TaskDto> attachedToAProcess = new ArrayList<>();
+        Set<String> processInstanceIds = new LinkedHashSet<>();
+        for (TaskDto task : tasks) {
+            if (task.processInstanceId() == null) {
+                continue;
+            }
+            attachedToAProcess.add(task);
+            processInstanceIds.add(task.processInstanceId());
+        }
+        Map<String, ProcessInstanceResolver.ProcessInstanceInfo> resolved =
+                processInstanceResolver.resolve(processInstanceIds);
+        List<WaitState> discovered = new ArrayList<>();
+        for (TaskDto task : attachedToAProcess) {
+            ProcessInstanceResolver.ProcessInstanceInfo info = resolved.get(task.processInstanceId());
+            if (info != null) {
+                discovered.add(toWaitState(task, info));
+            }
+        }
+        return discovered;
+    }
+
+    static WaitState toWaitState(TaskDto dto, ProcessInstanceResolver.ProcessInstanceInfo info) {
+        return new WaitState(
+                WaitStateKind.USER_TASK,
+                dto.id(),
+                dto.taskDefinitionKey(),
+                dto.processInstanceId(),
+                info.processDefinitionKey(),
+                dto.taskDefinitionKey(),
+                info.businessKey(),
+                dto.executionId(),
+                dto.tenantId());
+    }
+
+    /**
+     * Discovers message wait states via {@code GET /event-subscription}. A subscription with
+     * no {@code processInstanceId} is a message <em>start</em>-event subscription, which has
+     * no process instance to correlate to yet; message start events are unsupported (see
+     * PLAN.md §6 "Out of v1") and such subscriptions are silently skipped, never correlated.
+     * Every remaining subscription's owning process instance is resolved the same way as for
+     * user tasks.
+     */
+    private List<WaitState> discoverMessageSubscriptions(DiscoveryQuery query) {
+        List<EventSubscriptionDto> attachedToAProcess = new ArrayList<>();
+        Set<String> processInstanceIds = new LinkedHashSet<>();
+        for (String messageName : query.names()) {
+            EventSubscriptionDto[] subscriptions = client.getJson(
+                    "/event-subscription?eventType=message&eventName=" + messageName
+                            + "&maxResults=" + query.maxResults(),
+                    EventSubscriptionDto[].class);
+            for (EventSubscriptionDto subscription : subscriptions) {
+                if (subscription.processInstanceId() == null) {
+                    continue;
+                }
+                attachedToAProcess.add(subscription);
+                processInstanceIds.add(subscription.processInstanceId());
+            }
+        }
+        Map<String, ProcessInstanceResolver.ProcessInstanceInfo> resolved =
+                processInstanceResolver.resolve(processInstanceIds);
+        List<WaitState> discovered = new ArrayList<>();
+        for (EventSubscriptionDto subscription : attachedToAProcess) {
+            ProcessInstanceResolver.ProcessInstanceInfo info = resolved.get(subscription.processInstanceId());
+            if (info != null) {
+                discovered.add(toWaitState(subscription, info));
+            }
+        }
+        return discovered;
+    }
+
+    static WaitState toWaitState(EventSubscriptionDto dto, ProcessInstanceResolver.ProcessInstanceInfo info) {
+        return new WaitState(
+                WaitStateKind.MESSAGE_SUBSCRIPTION,
+                dto.id(),
+                dto.eventName(),
+                dto.processInstanceId(),
+                info.processDefinitionKey(),
+                dto.activityId(),
+                info.businessKey(),
+                dto.executionId(),
+                dto.tenantId());
+    }
+
+    /**
+     * Claims a wait state. For an external task, via {@code POST /external-task/{id}/lock}:
      *
      * <p>A rejection classified {@link CamundaFailureClassification#LOCKED_BY_OTHER_WORKER}
      * or {@link CamundaFailureClassification#RESOURCE_MISSING} becomes {@link ClaimResult#LOST}:
@@ -149,9 +262,22 @@ final class Camunda7EngineAdapter implements EngineAdapter {
      * {@code ACTION_FAILED} and never retries it, so the task appears stuck (untouched by
      * this run) until {@link EngineConfig#lockDuration()} expires and another worker can
      * claim it again.
+     *
+     * <p>For a user task or message subscription, this always returns {@link ClaimResult#CLAIMED}
+     * without any engine call: engine-rest has no lock/claim endpoint for either kind (a user
+     * task's own {@code assignee} field is a business concept, not a worker-exclusion lock,
+     * and a message subscription has no lock concept at all), so there is nothing to reserve
+     * against a concurrent worker before {@link #execute}. Two workers racing to act on the
+     * same user task or message wait state instead both attempt the same completion/
+     * correlation request; the first succeeds and the second's request is rejected by the
+     * engine itself (an unmatched-task or already-consumed-subscription error), which
+     * {@link #execute} reports as {@code ACTION_FAILED} like any other definite rejection.
      */
     @Override
     public ClaimResult claim(WaitState waitState) {
+        if (waitState.kind() != WaitStateKind.EXTERNAL_TASK) {
+            return ClaimResult.CLAIMED;
+        }
         LockExternalTaskRequest request =
                 new LockExternalTaskRequest(config.workerId(), config.lockDuration().toMillis());
         try {
@@ -206,13 +332,14 @@ final class Camunda7EngineAdapter implements EngineAdapter {
     }
 
     /**
-     * Executes an action against a claimed external task: {@link CompleteExternalTask},
-     * {@link ThrowBpmnError}, or {@link FailExternalTask} &mdash; the only {@link Action}
-     * subtypes defined so far ({@code Action} is sealed; user-task and message actions are
-     * added, and this {@code switch} extended, in iterations 9/10). Whichever action-specific
-     * case is added next must keep failing with a clear, definite
-     * {@link EngineActionException} for anything genuinely not applicable to an external
-     * task, rather than silently ignoring it.
+     * Executes an action against a claimed wait state, dispatching on the action's runtime
+     * type: the external-task actions {@link CompleteExternalTask}, {@link ThrowBpmnError},
+     * and {@link FailExternalTask}, the user-task action {@link CompleteUserTask}, and the
+     * message-correlation action {@link CorrelateMessage}. Every case first checks that
+     * {@code waitState}'s kind actually matches the action (for example a
+     * {@link CompleteUserTask} against anything but a {@link WaitStateKind#USER_TASK} wait
+     * state), rejecting a mismatch with a clear, definite {@link EngineActionException} rather
+     * than silently ignoring it or sending a nonsensical request.
      *
      * <p>A failure to build the request body itself &mdash; for example
      * {@link VariableCodec#encode(Object)} rejecting an unsupported variable value, or
@@ -223,21 +350,42 @@ final class Camunda7EngineAdapter implements EngineAdapter {
      * {@link IllegalArgumentException}), never left as an ambiguous outcome: nothing was ever
      * sent to the engine, so the loop must not journal it as "outcome unknown".
      *
-     * @throws EngineActionException if {@code waitState} is not a
-     *                                {@link WaitStateKind#EXTERNAL_TASK}: no action defined so
-     *                                far applies to any other kind
+     * @throws EngineActionException if {@code waitState}'s kind does not match the action, or
+     *                                (for {@link CorrelateMessage} with
+     *                                {@link CorrelationStrategy.ByBusinessKey}) if the wait
+     *                                state has no business key
      */
     @Override
     public void execute(WaitState waitState, Action action) {
-        if (waitState.kind() != WaitStateKind.EXTERNAL_TASK) {
+        switch (action) {
+            case CompleteExternalTask complete -> {
+                requireKind(waitState, WaitStateKind.EXTERNAL_TASK, action);
+                completeExternalTask(waitState, complete);
+            }
+            case ThrowBpmnError bpmnError -> {
+                requireKind(waitState, WaitStateKind.EXTERNAL_TASK, action);
+                throwBpmnError(waitState, bpmnError);
+            }
+            case FailExternalTask failure -> {
+                requireKind(waitState, WaitStateKind.EXTERNAL_TASK, action);
+                failExternalTask(waitState, failure);
+            }
+            case CompleteUserTask complete -> {
+                requireKind(waitState, WaitStateKind.USER_TASK, action);
+                completeUserTask(waitState, complete);
+            }
+            case CorrelateMessage correlate -> {
+                requireKind(waitState, WaitStateKind.MESSAGE_SUBSCRIPTION, action);
+                correlateMessage(waitState, correlate);
+            }
+        }
+    }
+
+    private static void requireKind(WaitState waitState, WaitStateKind expected, Action action) {
+        if (waitState.kind() != expected) {
             throw new EngineActionException(
                     "cannot execute " + action.getClass().getSimpleName() + " against a " + waitState.kind()
-                            + " wait state (" + waitState.id() + "): only EXTERNAL_TASK is supported");
-        }
-        switch (action) {
-            case CompleteExternalTask complete -> completeExternalTask(waitState, complete);
-            case ThrowBpmnError bpmnError -> throwBpmnError(waitState, bpmnError);
-            case FailExternalTask failure -> failExternalTask(waitState, failure);
+                            + " wait state (" + waitState.id() + "): expected " + expected);
         }
     }
 
@@ -300,6 +448,63 @@ final class Camunda7EngineAdapter implements EngineAdapter {
         }
     }
 
+    /**
+     * Completes a user task via {@code POST /task/{id}/complete}. Unlike an external task,
+     * there is no {@code workerId} to send: {@link #claim} never actually locks a user task
+     * (see its Javadoc), so completion is not restricted to whichever caller last "claimed"
+     * it.
+     */
+    private void completeUserTask(WaitState waitState, CompleteUserTask complete) {
+        CompleteTaskRequest request = buildCompleteTaskRequest(waitState, complete);
+        client.postNoContent("/task/" + waitState.id() + "/complete", request);
+    }
+
+    static CompleteTaskRequest buildCompleteTaskRequest(WaitState waitState, CompleteUserTask complete) {
+        try {
+            return new CompleteTaskRequest(encodeVariables(complete.variables()));
+        } catch (RuntimeException e) {
+            throw encodingFailure("CompleteUserTask", waitState, e);
+        }
+    }
+
+    /**
+     * Correlates a message via {@code POST /message}, targeting the wait state's process
+     * instance either by id or by business key depending on
+     * {@link CorrelateMessage#strategy()}, with {@code resultEnabled: true} so a duplicate
+     * correlation (for example two process instances sharing a business key) comes back as a
+     * definite {@link EngineActionException} rather than silently correlating to more than
+     * one instance.
+     */
+    private void correlateMessage(WaitState waitState, CorrelateMessage correlate) {
+        MessageCorrelationRequest request = buildMessageCorrelationRequest(waitState, correlate);
+        client.postNoContent("/message", request);
+    }
+
+    static MessageCorrelationRequest buildMessageCorrelationRequest(WaitState waitState, CorrelateMessage correlate) {
+        Map<String, TypedValueDto> variables;
+        try {
+            variables = encodeVariables(correlate.variables());
+        } catch (RuntimeException e) {
+            throw encodingFailure("CorrelateMessage", waitState, e);
+        }
+        return switch (correlate.strategy()) {
+            case CorrelationStrategy.ByProcessInstance ignored ->
+                    new MessageCorrelationRequest(waitState.name(), waitState.processInstanceId(), null, variables, true);
+            case CorrelationStrategy.ByBusinessKey ignored -> {
+                if (waitState.businessKey() == null) {
+                    throw missingBusinessKeyFailure(waitState);
+                }
+                yield new MessageCorrelationRequest(waitState.name(), null, waitState.businessKey(), variables, true);
+            }
+        };
+    }
+
+    private static EngineActionException missingBusinessKeyFailure(WaitState waitState) {
+        return new EngineActionException(
+                "cannot correlate message \"" + waitState.name() + "\" (wait state " + waitState.id()
+                        + ") by business key: this wait state's process instance has no business key");
+    }
+
     private static Map<String, TypedValueDto> encodeVariables(Variables variables) {
         Map<String, TypedValueDto> encoded = new LinkedHashMap<>();
         variables.asMap().forEach((name, value) -> encoded.put(name, VariableCodec.encode(value)));
@@ -309,7 +514,7 @@ final class Camunda7EngineAdapter implements EngineAdapter {
     private static EngineActionException encodingFailure(
             String actionName, WaitState waitState, RuntimeException cause) {
         return new EngineActionException(
-                "could not encode " + actionName + " request for external task " + waitState.id()
+                "could not encode " + actionName + " request for wait state " + waitState.id()
                         + " before sending it to the engine: " + cause.getMessage(), cause);
     }
 
