@@ -3,6 +3,7 @@ package io.github.tokennudge.camunda7;
 import io.github.tokennudge.camunda7.dto.TypedValueDto;
 import org.junit.jupiter.api.Test;
 
+import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Base64;
@@ -11,6 +12,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class VariableCodecTest {
 
@@ -114,8 +116,36 @@ class VariableCodecTest {
 
     @Test
     void encodeRejectsUnsupportedType() {
-        org.assertj.core.api.Assertions.assertThatThrownBy(() -> VariableCodec.encode(3.14f))
+        assertThatThrownBy(() -> VariableCodec.encode(3.14f))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void encodeRejectsNaN() {
+        assertThatThrownBy(() -> VariableCodec.encode(Double.NaN))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("NaN");
+    }
+
+    @Test
+    void encodeRejectsPositiveInfinity() {
+        assertThatThrownBy(() -> VariableCodec.encode(Double.POSITIVE_INFINITY))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Infinity");
+    }
+
+    @Test
+    void encodeRejectsNegativeInfinity() {
+        assertThatThrownBy(() -> VariableCodec.encode(Double.NEGATIVE_INFINITY))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Infinity");
+    }
+
+    @Test
+    void encodeRejectsBigDecimalWithAClearMessage() {
+        assertThatThrownBy(() -> VariableCodec.encode(new BigDecimal("42.00")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("BigDecimal");
     }
 
     private static void assertRoundTrip(Object value, String expectedType) {

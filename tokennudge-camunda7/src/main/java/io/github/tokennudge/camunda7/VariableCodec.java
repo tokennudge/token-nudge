@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import io.github.tokennudge.camunda7.dto.TypedValueDto;
 
 import java.io.IOException;
+import java.math.BigDecimal;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.time.OffsetDateTime;
@@ -21,6 +22,20 @@ import java.util.Map;
  * {@link OffsetDateTime} (both encoded as {@code "Date"}, formatted
  * {@code yyyy-MM-dd'T'HH:mm:ss.SSSZ}), {@code byte[]} ({@code "Bytes"}, base64), and
  * {@link Map}/{@link List} ({@code "Json"}, serialized with Jackson).
+ *
+ * <p>A non-finite {@link Double} ({@link Double#isNaN()} or {@link Double#isInfinite()}) is
+ * rejected by {@link #encode(Object)} with {@link IllegalArgumentException}: engine-rest has
+ * no representation for it as a Camunda {@code Double} variable, and silently encoding it as
+ * a JSON string (which is what plain Jackson serialization would otherwise do) would produce
+ * a value typed {@code Double} whose JSON shape does not match that type.
+ *
+ * <p>{@link java.math.BigDecimal} is deliberately <strong>not</strong> supported by
+ * {@link #encode(Object)}, even though {@code io.github.tokennudge.Variables} accepts it (for
+ * numeric-normalized equality comparisons in matchers/verifications, never sent to an
+ * engine). Rather than silently narrowing it to {@code Double} (lossy for values outside
+ * {@code double}'s precision or range) or {@code String} (changes the variable's engine type
+ * from what a caller might expect), encoding a {@link java.math.BigDecimal} fails fast with a
+ * clear {@link IllegalArgumentException}, consistent with any other unsupported type.
  */
 final class VariableCodec {
 
@@ -56,7 +71,17 @@ final class VariableCodec {
             return new TypedValueDto(sh, "Short", null);
         }
         if (value instanceof Double d) {
+            if (d.isNaN() || d.isInfinite()) {
+                throw new IllegalArgumentException(
+                        "unsupported Double variable value (NaN/Infinity are not representable as a "
+                                + "Camunda Double variable): " + d);
+            }
             return new TypedValueDto(d, "Double", null);
+        }
+        if (value instanceof BigDecimal bd) {
+            throw new IllegalArgumentException(
+                    "unsupported variable value type: " + BigDecimal.class.getName() + "; convert to Double or "
+                            + "String before sending it to the engine: " + bd);
         }
         if (value instanceof Date date) {
             return new TypedValueDto(formatDate(date), "Date", null);
