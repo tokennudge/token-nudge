@@ -1,9 +1,9 @@
 name: Release
 
-# Verifies every v* tag, and stages a release to the Sonatype Central Portal when run
-# manually. Staging is deliberately NOT tied to the tag: a tag push would otherwise re-upload
-# an already-published version, which Central rejects as a duplicate. The final "Publish" step
-# stays a human action in the portal (see RELEASING.md).
+# Verifies every v* tag and creates its GitHub Release page. Staging to the Sonatype Central
+# Portal happens only on a manual run: a tag push would otherwise re-upload an already
+# published version, which Central rejects as a duplicate. The final "Publish" step stays a
+# human action in the portal (see RELEASING.md).
 on:
   push:
     tags:
@@ -13,9 +13,16 @@ on:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    permissions:
+      # Only needed by "Create the GitHub Release"; everything else here is read-only.
+      contents: write
     steps:
       - name: Check out repository
         uses: actions/checkout@v5
+        with:
+          # Release notes are generated from the commit range since the previous tag, which
+          # needs the full history rather than a shallow clone.
+          fetch-depth: 0
 
       # Fail in seconds rather than after the full test suite: a missing secret otherwise
       # surfaces only at the signing or upload step, minutes later.
@@ -82,6 +89,23 @@ jobs:
           CENTRAL_TOKEN_USERNAME: ${{ secrets.CENTRAL_TOKEN_USERNAME }}
           CENTRAL_TOKEN_PASSWORD: ${{ secrets.CENTRAL_TOKEN_PASSWORD }}
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+
+      # Tag pushes do not deploy, but they do produce the human-facing release page. Skipped if
+      # a release for the tag already exists, so re-running the workflow is harmless.
+      - name: Create the GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "Release $GITHUB_REF_NAME already exists; leaving it untouched."
+            exit 0
+          fi
+          gh release create "$GITHUB_REF_NAME" \
+            --title "TokenNudge $version" \
+            --generate-notes \
+            --verify-tag
 
       - name: Upload test reports
         if: failure()
