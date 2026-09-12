@@ -6,7 +6,7 @@
 
   <groupId>io.github.tokennudge</groupId>
   <artifactId>tokennudge</artifactId>
-  <version>0.1.0</version>
+  <version>0.2.0-SNAPSHOT</version>
   <packaging>pom</packaging>
 
   <name>TokenNudge — inverted WireMock for Camunda 7 and CIB Seven</name>
