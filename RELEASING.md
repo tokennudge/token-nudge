@@ -115,8 +115,11 @@ search a little later.
 
 ## Releasing from CI
 
-`.github/workflows/release.yml` performs steps 1 and 3 when a `v*` tag is pushed. It needs four
-repository secrets:
+`.github/workflows/release.yml` runs the verification steps for every `v*` tag, and stages a
+release only when started manually from **Actions > Release > Run workflow**. Staging is kept
+off the tag trigger on purpose: re-pushing or moving a tag would otherwise re-upload a version
+that is already published, which Central rejects as a duplicate. It needs four repository
+secrets:
 
 | Secret | What it is |
 |---|---|

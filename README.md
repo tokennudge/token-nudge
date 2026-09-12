@@ -1,5 +1,8 @@
 # TokenNudge — inverted WireMock for Camunda 7 and CIB Seven
 
+[![Maven Central](https://img.shields.io/maven-central/v/io.github.tokennudge/tokennudge-core?label=Maven%20Central)](https://central.sonatype.com/artifact/io.github.tokennudge/tokennudge-core)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
+
 TokenNudge reaches into a running Camunda 7 / CIB Seven engine and nudges stalled process
 instances past their wait states — completing external tasks, correlating messages,
 completing user tasks — according to declarative, WireMock-style rules. It solves the
@@ -131,9 +134,9 @@ a race, or a definite action failure — for `verify(...)` to inspect later.
 
 ## Contributing / discoverability
 
-`0.1.0` is the first release. Until it appears on Maven Central, build from source with
-`./mvnw -B clean verify` (see below) and the artifacts land in your local repository. The
-release procedure itself is in [RELEASING.md](RELEASING.md).
+`0.1.0` is published on Maven Central, so the dependencies above are all you need. To work on
+TokenNudge itself, build from source with `./mvnw -B clean verify` (see below). The release
+procedure is in [RELEASING.md](RELEASING.md).
 
 Suggested GitHub repository topics, for discoverability: `camunda`, `camunda7`, `cibseven`,
 `bpmn`, `external-task`, `integration-testing`, `wiremock`, `testcontainers`.

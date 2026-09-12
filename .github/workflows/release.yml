@@ -1,8 +1,9 @@
 name: Release
 
-# Stages a release to the Sonatype Central Portal when a v* tag is pushed. The deployment is
-# staged, not published: the final "Publish" step stays a deliberate human action in the
-# portal (see RELEASING.md).
+# Verifies every v* tag, and stages a release to the Sonatype Central Portal when run
+# manually. Staging is deliberately NOT tied to the tag: a tag push would otherwise re-upload
+# an already-published version, which Central rejects as a duplicate. The final "Publish" step
+# stays a human action in the portal (see RELEASING.md).
 on:
   push:
     tags:
@@ -74,6 +75,8 @@ jobs:
         run: ./mvnw -B verify -pl tokennudge-camunda7 -am -Dtokennudge.it.engine=cibseven
 
       - name: Stage the release to Central
+        # Manual runs only, so re-tagging or pushing an existing tag never re-deploys.
+        if: github.event_name == 'workflow_dispatch'
         run: ./mvnw -B -Prelease,central deploy
         env:
           CENTRAL_TOKEN_USERNAME: ${{ secrets.CENTRAL_TOKEN_USERNAME }}
