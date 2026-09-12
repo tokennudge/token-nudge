@@ -26,6 +26,8 @@
     <maven.deploy.skip>true</maven.deploy.skip>
     <maven.javadoc.skip>true</maven.javadoc.skip>
     <maven.source.skip>true</maven.source.skip>
+    <!-- Not published, so nothing here needs a PGP signature either. -->
+    <gpg.skip>true</gpg.skip>
     <!-- The parent enables failOnWarning for the library modules; Spring Boot's own generated
          code and the starter's transitive dependencies are not held to that bar here. -->
     <maven.compiler.failOnWarning>false</maven.compiler.failOnWarning>
