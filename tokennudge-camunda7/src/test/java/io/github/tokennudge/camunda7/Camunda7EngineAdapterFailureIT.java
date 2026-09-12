@@ -28,7 +28,7 @@ import static io.github.tokennudge.TokenNudge.withVariables;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Integration tests for {@link Camunda7EngineAdapter}'s iteration 6b execute paths (BPMN
+ * Integration tests for {@link Camunda7EngineAdapter}'s failure execute paths (BPMN
  * error and failure) and for {@code CLAIM_LOST} at the adapter level, against a real engine.
  * Covers PLAN.md §5 item 6b's "done" criteria.
  */

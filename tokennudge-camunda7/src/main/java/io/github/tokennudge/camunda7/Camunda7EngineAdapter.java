@@ -305,8 +305,7 @@ final class Camunda7EngineAdapter implements EngineAdapter {
      *
      * <p>This only looks at the process instance and the wait state's own execution: values
      * scoped to an intermediate nested subprocess or multi-instance execution between the
-     * process instance and the wait state's execution may be missed (documented risk, see
-     * {@code docs/PLAN.md} §6 risk 6).
+     * process instance and the wait state's execution may be missed.
      */
     @Override
     public Map<String, Object> variables(WaitState waitState) {

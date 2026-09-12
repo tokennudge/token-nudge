@@ -10,7 +10,8 @@
  *
  * <p>This package also holds a few package-private classes ({@code VerificationEvaluator},
  * {@code IterationClock}, {@code LoopIterationClock}) that support {@code Verification} and
- * {@code TokenNudge} but are not public API; see {@code docs/PLAN.md} section 2.1 for why
- * they live here rather than under {@code io.github.tokennudge.internal}.
+ * {@code TokenNudge} but are not public API. They live here rather than under
+ * {@code io.github.tokennudge.internal} so that the inspection methods they need on
+ * {@code Verification} can stay package-private.
  */
 package io.github.tokennudge;

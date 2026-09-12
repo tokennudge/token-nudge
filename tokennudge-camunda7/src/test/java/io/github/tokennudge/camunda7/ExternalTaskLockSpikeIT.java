@@ -21,10 +21,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Confirms, against a real engine, that {@code POST /external-task/{id}/lock} exists and
- * behaves as documented in {@code docs/PROGRESS.md} ("Known risks"), and that
+ * behaves as the adapter's error classification assumes, and that
  * {@link EngineRestClient}/{@link CamundaFailureClassifier} classify its responses
- * correctly. This is the spike that de-risks the fetch-and-lock fallback described in
- * {@code docs/PLAN.md}'s ADR-2 (not needed, since lock-by-id works on both engines).
+ * correctly. This is the spike that de-risked the fetch-and-lock fallback, which turned out
+ * not to be needed, since lock-by-id works on both engines.
  */
 class ExternalTaskLockSpikeIT {
 

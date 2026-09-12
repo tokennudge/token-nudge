@@ -4,8 +4,8 @@ import io.github.tokennudge.spi.EngineActionException;
 
 /**
  * Classifies an {@link EngineActionException} raised by {@link EngineRestClient} against the
- * handful of engine-rest error shapes documented in {@code docs/PROGRESS.md} ("Known risks"),
- * so that callers (the future {@code Camunda7EngineAdapter}) do not need to re-parse error
+ * handful of engine-rest error shapes, each confirmed against real Camunda 7.24 and CIB Seven
+ * containers, so that callers such as {@code Camunda7EngineAdapter} do not need to re-parse error
  * messages themselves.
  */
 final class CamundaFailureClassifier {
@@ -50,7 +50,7 @@ final class CamundaFailureClassifier {
             return CamundaFailureClassification.UNCLASSIFIED;
         }
         // External-task lock/complete: a 404 "does not exist" for a completed or unknown id
-        // (see docs/PROGRESS.md "Known risks").
+        // (confirmed against both engines).
         if (status == 404 && containsIgnoringNull(message, DOES_NOT_EXIST)) {
             return CamundaFailureClassification.RESOURCE_MISSING;
         }

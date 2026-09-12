@@ -84,7 +84,7 @@ class PaymentFlowIT {
 
         nudge.verify(externalTask("charge-card").completed().times(1).withVariable("amount", 4200));
         // reached()/never() only means anything for a wait state some rule covers (see the
-        // iteration 8 review lesson in docs/PROGRESS.md); both are covered by the simulations
+        // TokenNudge only polls what a rule covers); both are covered by the simulations
         // registered above, so these assert the new steps were actually driven by TokenNudge,
         // not just skipped past.
         nudge.verify(message("PaymentConfirmed").correlated().times(1));

@@ -35,7 +35,7 @@ import java.util.OptionalLong;
  * {@link TokenNudge} (rather than under {@code io.github.tokennudge.internal}, where the
  * plan originally placed it) so that the count/outcome/near-miss inspection methods it
  * needs on {@link Verification} can stay package-private too, instead of being forced
- * public purely to cross a package boundary. See {@code docs/PLAN.md} section 2.1 for this
+ * public purely to cross a package boundary. See the package documentation for this
  * deviation.
  */
 final class VerificationEvaluator {

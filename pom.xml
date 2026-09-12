@@ -62,7 +62,7 @@
     <assertj-core.version>3.27.7</assertj-core.version>
 
     <!-- Versions declared here for modules introduced in later iterations
-         (tokennudge-camunda7 integration tests, iteration 5+). Not consumed yet. -->
+         (tokennudge-camunda7 integration tests). Not consumed yet. -->
     <jackson-bom.version>2.20.2</jackson-bom.version>
     <testcontainers-bom.version>2.0.5</testcontainers-bom.version>
     <slf4j-simple.version>2.0.17</slf4j-simple.version>
@@ -77,7 +77,7 @@
     <maven-javadoc-plugin.version>3.11.2</maven-javadoc-plugin.version>
     <maven-source-plugin.version>3.3.1</maven-source-plugin.version>
 
-    <!-- Integration-test target engine (iteration 5+); "camunda" (default) or "cibseven". -->
+    <!-- Integration-test target engine; "camunda" (default) or "cibseven". -->
     <tokennudge.it.engine>camunda</tokennudge.it.engine>
   </properties>
 

@@ -28,7 +28,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Regression tests for the "pre-send" guarantee (iteration 6b review carry-over 2): an
+ * Regression tests for the "pre-send" guarantee: an
  * unencodable variable value must fail as a definite {@link EngineActionException} rather
  * than an ambiguous "outcome unknown", both at the adapter level and end to end through
  * {@link TokenNudge}, even when the adapter is pointed at an unreachable engine. Since no

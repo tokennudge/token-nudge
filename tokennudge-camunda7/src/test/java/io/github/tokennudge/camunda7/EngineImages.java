@@ -3,8 +3,8 @@ package io.github.tokennudge.camunda7;
 /**
  * The engine Docker images/commands used by the integration tests, selected via the
  * {@code tokennudge.it.engine} system property ({@code camunda}, the default, or
- * {@code cibseven}). See {@code docs/PROGRESS.md} ("Known risks" / "Images") for how these
- * tags/commands were verified.
+ * {@code cibseven}). Both tags and their start commands were verified against real
+ * containers.
  */
 final class EngineImages {
 

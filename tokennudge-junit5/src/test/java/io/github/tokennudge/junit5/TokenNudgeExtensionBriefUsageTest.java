@@ -23,7 +23,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * JUnit (it exists only so the brief's exact declaration compiles against the real API); this
  * class only inspects it via reflection and asserts the extension's API shape, without ever
  * starting anything. Real end-to-end usage against a running engine is exercised by the
- * examples module (iteration 8), not here.
+ * examples module, not here.
  */
 class TokenNudgeExtensionBriefUsageTest {
 
