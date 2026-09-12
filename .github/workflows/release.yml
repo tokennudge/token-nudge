@@ -1,0 +1,52 @@
+name: Release
+
+# Stages a release to the Sonatype Central Portal when a v* tag is pushed. The deployment is
+# staged, not published: the final "Publish" step stays a deliberate human action in the
+# portal (see RELEASING.md).
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 25 (Temurin) with Central credentials and GPG
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+          server-id: central
+          server-username: CENTRAL_TOKEN_USERNAME
+          server-password: CENTRAL_TOKEN_PASSWORD
+          gpg-private-key: ${{ secrets.GPG_PRIVATE_KEY }}
+          gpg-passphrase: GPG_PASSPHRASE
+
+      - name: Verify (unit tests, integration tests against Camunda)
+        run: ./mvnw -B clean verify
+
+      - name: Verify against CIB Seven
+        run: ./mvnw -B verify -pl tokennudge-camunda7 -am -Dtokennudge.it.engine=cibseven
+
+      - name: Stage the release to Central
+        run: ./mvnw -B -Prelease,central deploy
+        env:
+          CENTRAL_TOKEN_USERNAME: ${{ secrets.CENTRAL_TOKEN_USERNAME }}
+          CENTRAL_TOKEN_PASSWORD: ${{ secrets.CENTRAL_TOKEN_PASSWORD }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports-release
+          path: |
+            **/target/surefire-reports/
+            **/target/failsafe-reports/
+          retention-days: 7

@@ -15,13 +15,13 @@ Add the test-scoped dependencies:
 <dependency>
   <groupId>io.github.tokennudge</groupId>
   <artifactId>tokennudge-camunda7</artifactId>
-  <version>0.1.0-SNAPSHOT</version>
+  <version>0.1.0</version>
   <scope>test</scope>
 </dependency>
 <dependency>
   <groupId>io.github.tokennudge</groupId>
   <artifactId>tokennudge-junit5</artifactId>
-  <version>0.1.0-SNAPSHOT</version>
+  <version>0.1.0</version>
   <scope>test</scope>
 </dependency>
 ```
@@ -131,10 +131,9 @@ a race, or a definite action failure — for `verify(...)` to inspect later.
 
 ## Contributing / discoverability
 
-Maven Central publishing is a later milestone — the `io.github.tokennudge` groupId needs a
-matching `tokennudge` GitHub org to claim the namespace first, so `0.1.0-SNAPSHOT` is not
-published anywhere yet. Building from source with `./mvnw -B clean verify` (see below) is the
-only way to use it today.
+`0.1.0` is the first release. Until it appears on Maven Central, build from source with
+`./mvnw -B clean verify` (see below) and the artifacts land in your local repository. The
+release procedure itself is in [RELEASING.md](RELEASING.md).
 
 Suggested GitHub repository topics, for discoverability: `camunda`, `camunda7`, `cibseven`,
 `bpmn`, `external-task`, `integration-testing`, `wiremock`, `testcontainers`.
