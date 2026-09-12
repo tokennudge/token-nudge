@@ -377,6 +377,13 @@
               <publishingServerId>central</publishingServerId>
               <autoPublish>false</autoPublish>
               <waitUntil>validated</waitUntil>
+              <!-- The publisher bundles every reactor module and ignores maven.deploy.skip,
+                   so the demo app has to be excluded by name. Do NOT use skipPublishing on
+                   that module instead: it is the last module in the reactor, and skipping it
+                   there cancels the whole upload while still bundling its artifacts. -->
+              <excludeArtifacts>
+                <excludeArtifact>tokennudge-examples</excludeArtifact>
+              </excludeArtifacts>
             </configuration>
           </plugin>
         </plugins>
