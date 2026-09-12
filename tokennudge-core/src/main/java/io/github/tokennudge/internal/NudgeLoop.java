@@ -78,6 +78,13 @@ public final class NudgeLoop {
     private final int maxResultsPerPoll;
 
     private final Object idleLock = new Object();
+    /**
+     * Set by { #wake()}, cleared by the loop when it next reaches its idle wait.
+     * Without this flag a wake() arriving after an iteration released iterationLock but
+     * before the loop parked on idleLock would notify nobody and be lost, delaying a newly
+     * registered rule by a full pollInterval. Guarded by idleLock.
+     */
+    private boolean wakeRequested = false;
     private long iterationCount = 0;
     private volatile boolean running = false;
     private volatile boolean stopRequested = false;
@@ -268,6 +275,7 @@ public final class NudgeLoop {
      */
     public void wake() {
         synchronized (idleLock) {
+            wakeRequested = true;
             idleLock.notifyAll();
         }
     }
@@ -329,13 +337,19 @@ public final class NudgeLoop {
             }
             if (!didWork && !stopRequested) {
                 synchronized (idleLock) {
-                    long millis = pollInterval.toMillis();
-                    int nanosRemainder = (int) (pollInterval.toNanos() % 1_000_000L);
-                    try {
-                        idleLock.wait(millis, nanosRemainder);
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
+                    // A wake() that arrived while this iteration was still running set the
+                    // flag, so skip the wait entirely rather than sleeping through work that
+                    // is already pending.
+                    if (!wakeRequested) {
+                        long millis = pollInterval.toMillis();
+                        int nanosRemainder = (int) (pollInterval.toNanos() % 1_000_000L);
+                        try {
+                            idleLock.wait(millis, nanosRemainder);
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                        }
                     }
+                    wakeRequested = false;
                 }
             }
         }

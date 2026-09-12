@@ -138,9 +138,6 @@ a race, or a definite action failure — for `verify(...)` to inspect later.
 TokenNudge itself, build from source with `./mvnw -B clean verify` (see below). The release
 procedure is in [RELEASING.md](RELEASING.md).
 
-Suggested GitHub repository topics, for discoverability: `camunda`, `camunda7`, `cibseven`,
-`bpmn`, `external-task`, `integration-testing`, `wiremock`, `testcontainers`.
-
 ## Building
 
 ```
