@@ -21,8 +21,11 @@
   </description>
 
   <properties>
-    <!-- Demo app, not a publishable library artifact. -->
+    <!-- Demo app, not a publishable library artifact: excluded from the `release` profile's
+         Javadoc/sources jars too, not only from `deploy`. -->
     <maven.deploy.skip>true</maven.deploy.skip>
+    <maven.javadoc.skip>true</maven.javadoc.skip>
+    <maven.source.skip>true</maven.source.skip>
     <!-- The parent enables failOnWarning for the library modules; Spring Boot's own generated
          code and the starter's transitive dependencies are not held to that bar here. -->
     <maven.compiler.failOnWarning>false</maven.compiler.failOnWarning>

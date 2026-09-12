@@ -12,6 +12,13 @@ import io.github.tokennudge.spi.EngineConfig;
 public final class Camunda7AdapterProvider implements EngineAdapterProvider {
 
     /**
+     * Creates a new provider. Instantiated by {@link java.util.ServiceLoader}, not called
+     * directly by application code.
+     */
+    public Camunda7AdapterProvider() {
+    }
+
+    /**
      * Creates a new {@link Camunda7EngineAdapter} for the given configuration.
      *
      * @param config the engine configuration, never {@code null}

@@ -3,13 +3,18 @@ package io.github.tokennudge.camunda7;
 import io.github.tokennudge.TokenNudge;
 import io.github.tokennudge.VerificationException;
 import io.github.tokennudge.camunda7.dto.TaskDto;
+import io.github.tokennudge.model.JournalEntry;
+import io.github.tokennudge.model.Outcome;
+import io.github.tokennudge.spi.EngineConfig;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.net.URI;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -145,5 +150,61 @@ class Camunda7UserTaskIT {
                 .filter(entry -> entry.waitState().processInstanceId().equals(processInstanceId))
                 .count();
         assertThat(unmatchedCount).isEqualTo(1);
+    }
+
+    /**
+     * The lost-race gap (see {@code EngineWaitStateGoneException}): completes the user task
+     * out of band, through {@link CompleteUserTaskBeforeExecuteAdapter}, between this worker's
+     * discovery/claim and its own {@code execute} call, reproducing the real engine's
+     * {@code 500} "Cannot find task with id ..." response for the loop's own completion attempt. Confirms
+     * the loop journals {@code CLAIM_LOST}, not an action error, and never retries.
+     */
+    @Test
+    void aUserTaskCompletedOutOfBandBetweenDiscoveryAndExecuteIsJournaledClaimLost() {
+        EngineConfig config = new EngineConfig(
+                URI.create(EngineContainer.sharedInstance().baseUrl()),
+                Duration.ofSeconds(10), Duration.ofSeconds(30), "it-race-worker-" + UUID.randomUUID(), 50, Map.of());
+        CompleteUserTaskBeforeExecuteAdapter adapter = new CompleteUserTaskBeforeExecuteAdapter(config, testClient);
+        TokenNudge racingNudge = TokenNudge.forAdapter(adapter)
+                .pollInterval(POLL_INTERVAL)
+                .verifyTimeout(VERIFY_TIMEOUT)
+                .start();
+        try {
+            racingNudge.simulate(userTask("review").willComplete());
+            testClient.startProcess("it-user-task", "race-order", Map.of());
+
+            awaitAtLeastOneEntry(racingNudge, AWAIT_ENDED_TIMEOUT);
+
+            assertThat(racingNudge.actionErrors()).isEmpty();
+            List<JournalEntry> entries = racingNudge.journal();
+            assertThat(entries).hasSize(1);
+            assertThat(entries.get(0).outcome()).isEqualTo(Outcome.CLAIM_LOST);
+
+            // Never retried: force one more fresh iteration and confirm no second attempt.
+            racingNudge.verify(userTask("review").completed().never());
+            assertThat(racingNudge.journal()).hasSize(1);
+        } finally {
+            racingNudge.stop();
+        }
+    }
+
+    private static void awaitAtLeastOneEntry(TokenNudge target, Duration timeout) {
+        Instant deadline = Instant.now().plus(timeout);
+        while (Instant.now().isBefore(deadline)) {
+            if (!target.journal().isEmpty()) {
+                return;
+            }
+            sleep(Duration.ofMillis(50));
+        }
+        throw new AssertionError("no journal entry appeared within " + timeout);
+    }
+
+    private static void sleep(Duration duration) {
+        try {
+            Thread.sleep(duration);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError("interrupted while waiting", e);
+        }
     }
 }

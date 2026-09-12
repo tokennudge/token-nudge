@@ -28,6 +28,12 @@ public final class SimulationRegistry {
     private final AtomicLong nextRegistrationSequence = new AtomicLong();
 
     /**
+     * Creates a new, empty registry.
+     */
+    public SimulationRegistry() {
+    }
+
+    /**
      * Registers a simulation.
      *
      * @param simulation the simulation to register, never {@code null}

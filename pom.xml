@@ -24,6 +24,20 @@
     </license>
   </licenses>
 
+  <scm>
+    <connection>scm:git:https://github.com/tokennudge/token-nudge.git</connection>
+    <developerConnection>scm:git:git@github.com:tokennudge/token-nudge.git</developerConnection>
+    <url>https://github.com/tokennudge/token-nudge</url>
+    <tag>HEAD</tag>
+  </scm>
+
+  <developers>
+    <developer>
+      <name>Nedim Jahic</name>
+      <email>me@nedimjahic.com</email>
+    </developer>
+  </developers>
+
   <modules>
     <module>tokennudge-core</module>
     <module>tokennudge-camunda7</module>
@@ -35,6 +49,13 @@
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
     <maven.compiler.release>25</maven.compiler.release>
+
+    <!-- One repository for the whole multi-module build: modules should inherit this exact
+         url/scm, not have their own artifactId path segment appended. -->
+    <project.url.inherit.append.path>false</project.url.inherit.append.path>
+    <project.scm.url.inherit.append.path>false</project.scm.url.inherit.append.path>
+    <project.scm.connection.inherit.append.path>false</project.scm.connection.inherit.append.path>
+    <project.scm.developerConnection.inherit.append.path>false</project.scm.developerConnection.inherit.append.path>
 
     <!-- Test dependency versions -->
     <junit-bom.version>5.14.4</junit-bom.version>
@@ -53,6 +74,8 @@
     <maven-failsafe-plugin.version>3.5.6</maven-failsafe-plugin.version>
     <maven-jar-plugin.version>3.4.2</maven-jar-plugin.version>
     <jacoco-maven-plugin.version>0.8.15</jacoco-maven-plugin.version>
+    <maven-javadoc-plugin.version>3.11.2</maven-javadoc-plugin.version>
+    <maven-source-plugin.version>3.3.1</maven-source-plugin.version>
 
     <!-- Integration-test target engine (iteration 5+); "camunda" (default) or "cibseven". -->
     <tokennudge.it.engine>camunda</tokennudge.it.engine>
@@ -155,7 +178,10 @@
             <includes>
               <include>**/*IT.java</include>
             </includes>
-            <skipITs>false</skipITs>
+            <!-- No <skipITs> here on purpose: hardcoding it (even to false) overrides
+                 -DskipITs on the command line, which silently made that flag inert and ran the
+                 full container-backed IT suite anyway. Failsafe's own default already runs ITs
+                 when the property is unset, so -DskipITs now works as documented. -->
             <systemPropertyVariables>
               <tokennudge.it.engine>${tokennudge.it.engine}</tokennudge.it.engine>
             </systemPropertyVariables>
@@ -256,4 +282,50 @@
       </plugin>
     </plugins>
   </build>
+
+  <profiles>
+    <profile>
+      <!-- Publish-ready polish (PLAN.md §5 item 11): Javadoc and sources jars with doclint
+           enabled, so a broken public Javadoc comment fails the build here rather than at
+           actual release time. Not part of the default `verify`, since generating Javadoc on
+           every build is unnecessary cost; run explicitly with `-Prelease verify`. Skipped in
+           tokennudge-examples (`maven.javadoc.skip`/`maven.source.skip`, alongside its existing
+           `maven.deploy.skip`), which is not part of the published API surface. -->
+      <id>release</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-source-plugin</artifactId>
+            <version>${maven-source-plugin.version}</version>
+            <executions>
+              <execution>
+                <id>attach-sources</id>
+                <goals>
+                  <goal>jar-no-fork</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-javadoc-plugin</artifactId>
+            <version>${maven-javadoc-plugin.version}</version>
+            <configuration>
+              <doclint>all</doclint>
+              <quiet>true</quiet>
+            </configuration>
+            <executions>
+              <execution>
+                <id>attach-javadocs</id>
+                <goals>
+                  <goal>jar</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
 </project>

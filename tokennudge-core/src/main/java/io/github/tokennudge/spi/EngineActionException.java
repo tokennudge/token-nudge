@@ -21,8 +21,13 @@ public class EngineActionException extends RuntimeException {
     @Serial
     private static final long serialVersionUID = 1L;
 
+    /** The HTTP status code of the rejected response, or {@code -1} if not applicable/unknown. */
     private final int status;
+
+    /** The engine's own error type/class, or {@code null} if not available. */
     private final String engineErrorType;
+
+    /** The engine's own error message, or {@code null} if not available. */
     private final String engineMessage;
 
     /**

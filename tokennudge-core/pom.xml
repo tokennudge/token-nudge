@@ -53,6 +53,36 @@
           </execution>
         </executions>
       </plugin>
+      <plugin>
+        <!-- PLAN.md §5 item 11: core line coverage must be at least 90%. No ITs in this
+             module, so the default jacoco.exec from the parent's prepare-agent execution is
+             the whole picture; no merge step needed (contrast tokennudge-camunda7). -->
+        <groupId>org.jacoco</groupId>
+        <artifactId>jacoco-maven-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>jacoco-check</id>
+            <phase>verify</phase>
+            <goals>
+              <goal>check</goal>
+            </goals>
+            <configuration>
+              <rules>
+                <rule>
+                  <element>BUNDLE</element>
+                  <limits>
+                    <limit>
+                      <counter>LINE</counter>
+                      <value>COVEREDRATIO</value>
+                      <minimum>0.90</minimum>
+                    </limit>
+                  </limits>
+                </rule>
+              </rules>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
     </plugins>
   </build>
 </project>

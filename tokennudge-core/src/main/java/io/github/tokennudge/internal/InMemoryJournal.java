@@ -34,6 +34,12 @@ public final class InMemoryJournal {
     private final AtomicLong nextSequence = new AtomicLong();
 
     /**
+     * Creates a new, empty journal.
+     */
+    public InMemoryJournal() {
+    }
+
+    /**
      * Appends a new entry, unless it would be a duplicate {@link Outcome#UNMATCHED} record
      * for a wait state id already journaled as unmatched, in which case nothing is
      * recorded.

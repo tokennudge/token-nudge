@@ -247,6 +247,21 @@ final class EngineRestTestClient {
     }
 
     /**
+     * Completes a user task directly, with no variables, so a test can simulate a real race:
+     * someone else (a human, another worker, or the test itself) completing a wait state out
+     * of band between an adapter's discovery and its own {@code execute} call.
+     *
+     * @param taskId the id of the user task to complete
+     */
+    void completeTask(String taskId) {
+        HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl + "/task/" + taskId + "/complete"))
+                .header("Content-Type", "application/json")
+                .POST(jsonBody(Map.of()))
+                .build();
+        send(request, 204);
+    }
+
+    /**
      * Deletes a single process instance, so a test can simulate the engine-side state
      * disappearing between an adapter's {@code claim} and {@code execute} calls.
      *

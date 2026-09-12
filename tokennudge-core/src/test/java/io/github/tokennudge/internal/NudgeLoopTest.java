@@ -212,6 +212,30 @@ class NudgeLoopTest {
     }
 
     @Test
+    void engineWaitStateGoneOnExecuteIsJournaledAsClaimLostNotAnActionError() throws InterruptedException {
+        WaitState waitState = LoopWaitStates.externalTask("task-1", TOPIC);
+        adapter.addWaitState(waitState);
+        adapter.simulateWaitStateGoneOnExecute(waitState.id());
+        registry.add(externalTask(TOPIC).willComplete());
+
+        NudgeLoop loop = newLoop(SHORT_POLL, false);
+        loop.start();
+
+        awaitUntil(loop, () -> !journal.entries().isEmpty(), AWAIT_TIMEOUT);
+
+        // Let a few more iterations run, to prove there is no retry.
+        long iterationsSoFar = loop.iterationCount();
+        awaitUntil(loop, () -> loop.iterationCount() >= iterationsSoFar + 3, AWAIT_TIMEOUT);
+
+        assertThat(journal.entries()).hasSize(1);
+        JournalEntry entry = journal.entries().get(0);
+        assertThat(entry.outcome()).isEqualTo(Outcome.CLAIM_LOST);
+        assertThat(entry.error()).isEmpty();
+        assertThat(journal.entries()).noneMatch(e -> e.outcome() == Outcome.ACTION_FAILED);
+        assertThat(adapter.executedActions()).isEmpty();
+    }
+
+    @Test
     void stopCalledFromTheLoopThreadItselfReturnsPromptlyWithoutSelfJoining() throws InterruptedException {
         WaitState waitState = LoopWaitStates.externalTask("task-1", TOPIC);
         adapter.addWaitState(waitState);

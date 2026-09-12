@@ -15,8 +15,13 @@ enum CamundaFailureClassification {
     ENDPOINT_NOT_FOUND,
 
     /**
-     * The targeted resource (for example an external task id) no longer exists or never
-     * did &mdash; it may have already been completed or deleted by another worker.
+     * The targeted resource (an external task, a user task, or a message subscription's
+     * process instance) no longer exists or never did &mdash; it may have already been
+     * completed, correlated, or deleted by another worker, a human, or the process itself.
+     * Covers three distinct engine-rest shapes, confirmed identical on Camunda 7.24.0 and CIB
+     * Seven 2.2.0: a {@code 404} "does not exist" (external task), a {@code 500} "Cannot find
+     * task with id ..." (user task completion), and a {@code 400} "No process definition or
+     * execution matches the parameters" (message correlation).
      */
     RESOURCE_MISSING,
 

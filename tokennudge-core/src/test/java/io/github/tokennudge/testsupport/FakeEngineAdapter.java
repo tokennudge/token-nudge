@@ -8,6 +8,7 @@ import io.github.tokennudge.spi.DiscoveryQuery;
 import io.github.tokennudge.spi.EngineAccessException;
 import io.github.tokennudge.spi.EngineActionException;
 import io.github.tokennudge.spi.EngineAdapter;
+import io.github.tokennudge.spi.EngineWaitStateGoneException;
 
 import java.util.List;
 import java.util.Map;
@@ -52,6 +53,7 @@ public final class FakeEngineAdapter implements EngineAdapter {
     private final Set<String> ambiguousClaimFailureIds = ConcurrentHashMap.newKeySet();
     private final Set<String> notDeliveredExecuteIds = ConcurrentHashMap.newKeySet();
     private final Set<String> ambiguousExecuteFailureIds = ConcurrentHashMap.newKeySet();
+    private final Set<String> waitStateGoneExecuteIds = ConcurrentHashMap.newKeySet();
     private volatile CountDownLatch discoveryEnteredLatch;
     private volatile CountDownLatch discoveryReleaseLatch;
 
@@ -177,6 +179,18 @@ public final class FakeEngineAdapter implements EngineAdapter {
     }
 
     /**
+     * Makes {@link #execute(WaitState, Action)} throw {@link EngineWaitStateGoneException} for
+     * the given wait state id, simulating an engine that authoritatively reports the wait
+     * state was already handled by someone else between discovery and execution (a benign
+     * race, not a failure; see {@link EngineAdapter}'s "Failure contract" section).
+     *
+     * @param waitStateId the wait-state id to report as already gone, never {@code null}
+     */
+    public void simulateWaitStateGoneOnExecute(String waitStateId) {
+        waitStateGoneExecuteIds.add(Objects.requireNonNull(waitStateId, "waitStateId must not be null"));
+    }
+
+    /**
      * Makes the next call to {@link #discover(DiscoveryQuery)} count down {@code entered}
      * as soon as it is invoked, then block until {@code release} counts down to zero,
      * before computing its result. Since both latches stay open once counted down, only
@@ -268,6 +282,9 @@ public final class FakeEngineAdapter implements EngineAdapter {
         }
         if (actionFailureIds.contains(waitState.id())) {
             throw new EngineActionException("fake action failure for wait state " + waitState.id());
+        }
+        if (waitStateGoneExecuteIds.contains(waitState.id())) {
+            throw new EngineWaitStateGoneException("fake wait state gone for wait state " + waitState.id());
         }
         executedActions.add(new ExecutedAction(waitState, action));
     }

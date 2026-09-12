@@ -34,6 +34,13 @@ import java.util.Map;
  *       a request that was definitely rejected by the engine (for example, a 4xx response
  *       with a clear reason). Prefer it over a generic {@link RuntimeException} whenever the
  *       engine's own response makes the outcome unambiguous.</li>
+ *   <li>{@link EngineWaitStateGoneException}, thrown only from {@code execute}, reports a
+ *       different, still-unambiguous fact: the engine authoritatively confirms the wait
+ *       state no longer exists, because another worker, a human, or the process itself
+ *       already handled it first. This is a benign race, not a failure &mdash; the loop
+ *       journals {@link io.github.tokennudge.model.Outcome#CLAIM_LOST}, exactly as it does
+ *       for {@link ClaimResult#LOST} from {@code claim}, rather than
+ *       {@link io.github.tokennudge.model.Outcome#ACTION_FAILED}.</li>
  * </ul>
  * <h3>The JDK {@code HttpClient} trap</h3>
  * <p>Adapters built on {@code java.net.http.HttpClient} (as {@code tokennudge-camunda7} is)
@@ -131,7 +138,11 @@ public interface EngineAdapter extends AutoCloseable {
      *
      * @param waitState the wait state to act on, never {@code null}
      * @param action    the action to perform, never {@code null}
-     * @throws EngineActionException if the engine was reached but rejected the action
+     * @throws EngineActionException       if the engine was reached but rejected the action
+     * @throws EngineWaitStateGoneException if the engine authoritatively reports that the
+     *                                       wait state no longer exists (a benign race, not
+     *                                       a failure); see this interface's class Javadoc
+     *                                       "Failure contract" section
      * @throws EngineAccessException if the request was definitely not delivered; see this
      *                                interface's class Javadoc "Failure contract" section
      *                                for what other exceptions mean and how they are

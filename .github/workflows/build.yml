@@ -25,3 +25,43 @@ jobs:
 
       - name: Build and verify (engine=${{ matrix.engine }})
         run: ./mvnw -B verify -Dtokennudge.it.engine=${{ matrix.engine }}
+
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports-${{ matrix.engine }}
+          path: |
+            **/target/surefire-reports/
+            **/target/failsafe-reports/
+          retention-days: 7
+
+  release-profile:
+    # Separate, unmatrixed job: only needs to catch Javadoc/doclint breakage in the `release`
+    # profile, so it skips integration tests (already covered by the `verify` job above) to
+    # stay cheap. The JaCoCo gates are skipped with it: tokennudge-camunda7's 80% floor is met
+    # only by merged unit + IT data (91.46% merged versus 60.98% unit-only), so leaving the
+    # check enabled here would fail this job on every run, for a reason it is not meant to
+    # police.
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 25 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+
+      - name: Build with the release profile (Javadoc, sources, no ITs)
+        run: ./mvnw -B -Prelease -DskipITs -Djacoco.skip=true verify
+
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports-release-profile
+          path: '**/target/surefire-reports/'
+          retention-days: 7

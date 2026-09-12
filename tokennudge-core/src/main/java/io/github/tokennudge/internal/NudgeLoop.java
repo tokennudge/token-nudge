@@ -10,6 +10,7 @@ import io.github.tokennudge.spi.DiscoveryQuery;
 import io.github.tokennudge.spi.EngineAccessException;
 import io.github.tokennudge.spi.EngineActionException;
 import io.github.tokennudge.spi.EngineAdapter;
+import io.github.tokennudge.spi.EngineWaitStateGoneException;
 
 import java.lang.System.Logger.Level;
 import java.time.Duration;
@@ -55,8 +56,11 @@ import java.util.concurrent.locks.ReentrantLock;
  * {@link Outcome#ACTION_FAILED} with an {@code "outcome unknown: ..."} error and marked
  * handled &mdash; for {@code claim}, in preference to {@link Outcome#CLAIM_LOST}, since
  * {@code CLAIM_LOST} means the engine authoritatively reported the wait state was already
- * taken, which an ambiguous failure does not tell us. See {@link EngineAdapter}'s class
- * Javadoc for the full contract.
+ * taken, which an ambiguous failure does not tell us. An
+ * {@link io.github.tokennudge.spi.EngineWaitStateGoneException} from {@code execute} is a
+ * third, distinct case: the engine authoritatively confirms the wait state is already gone,
+ * which is journaled as {@link Outcome#CLAIM_LOST} as well, never as an action error. See
+ * {@link EngineAdapter}'s class Javadoc for the full contract.
  *
  * <p>Not public API; see the package documentation.
  */
@@ -491,6 +495,20 @@ public final class NudgeLoop {
     private boolean execute(WaitState waitState, Simulation simulation, Map<String, Object> variables) {
         try {
             adapter.execute(waitState, simulation.action());
+        } catch (EngineWaitStateGoneException e) {
+            // Benign race: the engine authoritatively confirms the wait state is already
+            // gone (another worker, a human, or the process itself handled it first).
+            // Journaled exactly like ClaimResult.LOST from claim() - never retried, and
+            // deliberately not an action error.
+            handledWaitStates.add(waitState.id());
+            journal.append(
+                    waitState,
+                    Optional.of(simulation.id()),
+                    Optional.of(simulation.action()),
+                    Outcome.CLAIM_LOST,
+                    variables,
+                    Optional.empty());
+            return true;
         } catch (EngineActionException e) {
             // Definite, informative rejection by the engine: safe to record as-is.
             handledWaitStates.add(waitState.id());

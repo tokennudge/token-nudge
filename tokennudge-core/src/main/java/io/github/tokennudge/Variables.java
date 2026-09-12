@@ -28,7 +28,7 @@ import java.util.Objects;
  * {@link OffsetDateTime}, {@code byte[]}, and, for JSON-typed variables, {@link Map} and
  * {@link List} (whose entries/elements must themselves be one of these supported types).
  *
- * @see io.github.tokennudge.model.Action.CompleteExternalTask
+ * @see io.github.tokennudge.model.CompleteExternalTask
  */
 public final class Variables {
 

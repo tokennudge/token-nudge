@@ -14,6 +14,8 @@ final class CamundaFailureClassifier {
     private static final String REST_EXCEPTION_TYPE = "RestException";
     private static final String DOES_NOT_EXIST = "does not exist";
     private static final String CANNOT_BE_LOCKED = "cannot be locked by worker";
+    private static final String CANNOT_FIND_TASK = "Cannot find task with id";
+    private static final String NO_EXECUTION_MATCHES = "No process definition or execution matches the parameters";
 
     private CamundaFailureClassifier() {
     }
@@ -44,10 +46,31 @@ final class CamundaFailureClassifier {
         if (status == 404 && NOT_FOUND_TYPE.equals(type)) {
             return CamundaFailureClassification.ENDPOINT_NOT_FOUND;
         }
-        if (status == 404 && REST_EXCEPTION_TYPE.equals(type) && containsIgnoringNull(message, DOES_NOT_EXIST)) {
+        if (!REST_EXCEPTION_TYPE.equals(type)) {
+            return CamundaFailureClassification.UNCLASSIFIED;
+        }
+        // External-task lock/complete: a 404 "does not exist" for a completed or unknown id
+        // (see docs/PROGRESS.md "Known risks").
+        if (status == 404 && containsIgnoringNull(message, DOES_NOT_EXIST)) {
             return CamundaFailureClassification.RESOURCE_MISSING;
         }
-        if (status == 400 && REST_EXCEPTION_TYPE.equals(type) && containsIgnoringNull(message, CANNOT_BE_LOCKED)) {
+        // User-task completion of an already-completed or unknown task id: unlike the
+        // external-task endpoints, this comes back as a 500, not a 404, wrapping
+        // org.camunda.bpm.engine.impl.persistence.entity.TaskManager's own "task is null"
+        // check (confirmed identical shape on Camunda 7.24.0 and CIB Seven 2.2.0).
+        if (status == 500 && containsIgnoringNull(message, CANNOT_FIND_TASK)) {
+            return CamundaFailureClassification.RESOURCE_MISSING;
+        }
+        // Message correlation targeting an already-consumed subscription or an ended process
+        // instance: the engine reports no matching execution at all, distinct from the
+        // "matches more than one execution" ambiguous-correlation case (left UNCLASSIFIED,
+        // since that is a definite, different rejection, not a benign race). Confirmed
+        // identical shape (modulo the org.camunda/org.cibseven package prefix, not matched
+        // here) on both engines.
+        if (status == 400 && containsIgnoringNull(message, NO_EXECUTION_MATCHES)) {
+            return CamundaFailureClassification.RESOURCE_MISSING;
+        }
+        if (status == 400 && containsIgnoringNull(message, CANNOT_BE_LOCKED)) {
             return CamundaFailureClassification.LOCKED_BY_OTHER_WORKER;
         }
         return CamundaFailureClassification.UNCLASSIFIED;

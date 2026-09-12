@@ -29,6 +29,7 @@ import io.github.tokennudge.spi.EngineAccessException;
 import io.github.tokennudge.spi.EngineActionException;
 import io.github.tokennudge.spi.EngineAdapter;
 import io.github.tokennudge.spi.EngineConfig;
+import io.github.tokennudge.spi.EngineWaitStateGoneException;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -350,10 +351,14 @@ final class Camunda7EngineAdapter implements EngineAdapter {
      * {@link IllegalArgumentException}), never left as an ambiguous outcome: nothing was ever
      * sent to the engine, so the loop must not journal it as "outcome unknown".
      *
-     * @throws EngineActionException if {@code waitState}'s kind does not match the action, or
-     *                                (for {@link CorrelateMessage} with
-     *                                {@link CorrelationStrategy.ByBusinessKey}) if the wait
-     *                                state has no business key
+     * @throws EngineActionException        if {@code waitState}'s kind does not match the
+     *                                       action, or (for {@link CorrelateMessage} with
+     *                                       {@link CorrelationStrategy.ByBusinessKey}) if the
+     *                                       wait state has no business key
+     * @throws EngineWaitStateGoneException if a user-task completion or message correlation
+     *                                       is rejected because the target already no longer
+     *                                       exists (a benign race with another worker, a
+     *                                       human, or the process itself)
      */
     @Override
     public void execute(WaitState waitState, Action action) {
@@ -453,10 +458,23 @@ final class Camunda7EngineAdapter implements EngineAdapter {
      * there is no {@code workerId} to send: {@link #claim} never actually locks a user task
      * (see its Javadoc), so completion is not restricted to whichever caller last "claimed"
      * it.
+     *
+     * <p>Because {@link #claim} is a local no-op for user tasks (see its Javadoc), a
+     * {@code 404} here (classified {@link CamundaFailureClassification#RESOURCE_MISSING})
+     * unambiguously means a real race: another worker, a human through some other UI, or the
+     * process itself already completed or removed this task between discovery and this call.
+     * That is reported as {@link EngineWaitStateGoneException}, not
+     * {@link EngineActionException}, so the loop journals the benign
+     * {@link io.github.tokennudge.model.Outcome#CLAIM_LOST} instead of failing a user's test
+     * through {@code failOnActionErrors(true)}.
      */
     private void completeUserTask(WaitState waitState, CompleteUserTask complete) {
         CompleteTaskRequest request = buildCompleteTaskRequest(waitState, complete);
-        client.postNoContent("/task/" + waitState.id() + "/complete", request);
+        try {
+            client.postNoContent("/task/" + waitState.id() + "/complete", request);
+        } catch (EngineActionException e) {
+            translateGoneRace(e);
+        }
     }
 
     static CompleteTaskRequest buildCompleteTaskRequest(WaitState waitState, CompleteUserTask complete) {
@@ -474,10 +492,47 @@ final class Camunda7EngineAdapter implements EngineAdapter {
      * correlation (for example two process instances sharing a business key) comes back as a
      * definite {@link EngineActionException} rather than silently correlating to more than
      * one instance.
+     *
+     * <p>As for {@link #completeUserTask}, {@link #claim} is a local no-op for message
+     * subscriptions, so a {@code 404} here (classified
+     * {@link CamundaFailureClassification#RESOURCE_MISSING}) unambiguously means the
+     * subscription (or its process instance) is already gone &mdash; another worker
+     * correlated it first, or the process moved on some other way &mdash; and is reported as
+     * {@link EngineWaitStateGoneException} rather than {@link EngineActionException}.
      */
     private void correlateMessage(WaitState waitState, CorrelateMessage correlate) {
         MessageCorrelationRequest request = buildMessageCorrelationRequest(waitState, correlate);
-        client.postNoContent("/message", request);
+        try {
+            client.postNoContent("/message", request);
+        } catch (EngineActionException e) {
+            translateGoneRace(e);
+        }
+    }
+
+    /**
+     * Rethrows a rejected user-task completion or message correlation request as
+     * {@link EngineWaitStateGoneException} when the engine's own response unambiguously
+     * reports the target as already gone ({@link CamundaFailureClassification#RESOURCE_MISSING}),
+     * or rethrows the original {@link EngineActionException} unchanged otherwise (for example a
+     * validation error, a wrong endpoint, or an ambiguous-correlation rejection).
+     *
+     * <p><strong>Deliberately not used for external-task completion, BPMN error, or
+     * failure:</strong> those are only ever called after {@link #claim} has actually locked
+     * the task on the engine (a real lock, unlike the local no-op for user tasks/messages), so
+     * a {@code 404} there means the process instance was deleted out from under a lock this
+     * worker still holds &mdash; a genuinely concerning condition, not a benign race, which
+     * {@code Camunda7EngineAdapterFailureIT.engineRejectedActionEndsUpInActionErrors}
+     * deliberately asserts still surfaces as {@code ACTION_FAILED}.
+     *
+     * @throws EngineWaitStateGoneException always, if {@code e} classifies as
+     *                                       {@link CamundaFailureClassification#RESOURCE_MISSING}
+     * @throws EngineActionException        always, otherwise (rethrows {@code e} itself)
+     */
+    private static void translateGoneRace(EngineActionException e) {
+        if (CamundaFailureClassifier.classify(e) == CamundaFailureClassification.RESOURCE_MISSING) {
+            throw new EngineWaitStateGoneException(e.getMessage(), e);
+        }
+        throw e;
     }
 
     static MessageCorrelationRequest buildMessageCorrelationRequest(WaitState waitState, CorrelateMessage correlate) {
