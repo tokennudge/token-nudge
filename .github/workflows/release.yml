@@ -16,6 +16,34 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      # Fail in seconds rather than after the full test suite: a missing secret otherwise
+      # surfaces only at the signing or upload step, minutes later.
+      - name: Check release credentials are present
+        env:
+          CENTRAL_TOKEN_USERNAME: ${{ secrets.CENTRAL_TOKEN_USERNAME }}
+          CENTRAL_TOKEN_PASSWORD: ${{ secrets.CENTRAL_TOKEN_PASSWORD }}
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          missing=0
+          for name in CENTRAL_TOKEN_USERNAME CENTRAL_TOKEN_PASSWORD GPG_PRIVATE_KEY GPG_PASSPHRASE; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Repository secret $name is missing or empty."
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo "Set them under Settings > Secrets and variables > Actions. See RELEASING.md."
+            exit 1
+          fi
+          case "$GPG_PRIVATE_KEY" in
+            *"BEGIN PGP PRIVATE KEY BLOCK"*) ;;
+            *) echo "::error::GPG_PRIVATE_KEY is not an ASCII-armoured private key."
+               echo "Export it with: gpg --armor --export-secret-keys <KEY_ID>"
+               echo "Paste the whole block, including the BEGIN and END lines."
+               exit 1 ;;
+          esac
+
       - name: Set up JDK 25 (Temurin) with Central credentials and GPG
         uses: actions/setup-java@v4
         with:
@@ -27,6 +55,17 @@ jobs:
           server-password: CENTRAL_TOKEN_PASSWORD
           gpg-private-key: ${{ secrets.GPG_PRIVATE_KEY }}
           gpg-passphrase: GPG_PASSPHRASE
+
+      # setup-java imports the key silently and does not fail when the import produced nothing,
+      # so confirm a signing key really is in the keyring before spending time on tests.
+      - name: Confirm the signing key was imported
+        run: |
+          if ! gpg --list-secret-keys --keyid-format=long | grep -q '^sec'; then
+            echo "::error::No secret key in the runner keyring after import."
+            echo "GPG_PRIVATE_KEY is set but was not importable - re-export and re-paste it."
+            exit 1
+          fi
+          gpg --list-secret-keys --keyid-format=long | grep -E '^sec|^uid' || true
 
       - name: Verify (unit tests, integration tests against Camunda)
         run: ./mvnw -B clean verify
